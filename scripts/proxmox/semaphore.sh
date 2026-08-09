@@ -168,7 +168,7 @@ select_ubuntu_version() {
   selected_version=$(ui_radiolist "UBUNTU VERSION" "\nChoose the Ubuntu template version:" 14 58 3 \
     "24.04" "Ubuntu 24.04 LTS" $([[ "$UBUNTU_VERSION" == "24.04" ]] && printf 'ON' || printf 'OFF') \
     "22.04" "Ubuntu 22.04 LTS" $([[ "$UBUNTU_VERSION" == "22.04" ]] && printf 'ON' || printf 'OFF') \
-    "25.04" "Ubuntu 25.04" $([[ "$UBUNTU_VERSION" == "25.04" ]] && printf 'ON' || printf 'OFF')) || exit 0
+    "25.04" "Ubuntu 25.04" $([[ "$UBUNTU_VERSION" == "25.04" ]] && printf 'ON' || printf 'OFF')) || return 1
 
   UBUNTU_VERSION="$selected_version"
   TEMPLATE_NAME=""
@@ -185,7 +185,7 @@ run_default_wizard() {
           ROOT_PASSWORD="$result"
           ((step++))
         else
-          exit 0
+          return 1
         fi
         ;;
       2)
@@ -256,7 +256,7 @@ run_advanced_wizard() {
           UNPRIVILEGED="$result"
           ((step++))
         else
-          exit 0
+          return 1
         fi
         ;;
       2)
@@ -414,12 +414,14 @@ run_advanced_wizard() {
         fi
         ;;
       14)
-        if ui_yesno "START ON BOOT" "\nStart container when the Proxmox host boots?" 11 60 "Yes" "No"; then
-          START_ON_BOOT=1
+        if result=$(ui_radiolist "START ON BOOT" "\nStart container when the Proxmox host boots?" 14 58 2 \
+          "1" "Yes" $([[ "$START_ON_BOOT" == "1" ]] && printf 'ON' || printf 'OFF') \
+          "0" "No" $([[ "$START_ON_BOOT" == "0" ]] && printf 'ON' || printf 'OFF')); then
+          START_ON_BOOT="$result"
+          ((step++))
         else
-          START_ON_BOOT=0
+          ((step--))
         fi
-        ((step++))
         ;;
       15)
         if result=$(ui_input "TEMPLATE STORAGE" "\nSet template storage name" "$TEMPLATE_STORAGE" "Next" "Back"); then
@@ -810,20 +812,45 @@ main() {
   ensure_root
   ensure_proxmox_host
 
+  reset_defaults
+  local stage="intro"
+
   while true; do
-    reset_defaults
-    show_intro_menu
-    select_ubuntu_version
-
-    if [[ "$INSTALL_MODE" == "default" ]]; then
-      run_default_wizard
-    else
-      run_advanced_wizard
-    fi
-
-    if confirm_summary; then
-      break
-    fi
+    case "$stage" in
+      intro)
+        show_intro_menu
+        stage="template"
+        ;;
+      template)
+        if select_ubuntu_version; then
+          stage="wizard"
+        else
+          stage="intro"
+        fi
+        ;;
+      wizard)
+        if [[ "$INSTALL_MODE" == "default" ]]; then
+          if run_default_wizard; then
+            stage="confirm"
+          else
+            stage="template"
+          fi
+        else
+          if run_advanced_wizard; then
+            stage="confirm"
+          else
+            stage="template"
+          fi
+        fi
+        ;;
+      confirm)
+        if confirm_summary; then
+          break
+        fi
+        reset_defaults
+        stage="intro"
+        ;;
+    esac
   done
 
   finalize_generated_values

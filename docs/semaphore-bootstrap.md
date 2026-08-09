@@ -35,6 +35,7 @@ The intended operator experience is inspired by Proxmox VE Helper Scripts:
 - accept safe defaults for a quick path
 - optionally choose advanced settings for storage, networking, and resources
 - finish with a working container, credentials, and next steps
+- allow Back navigation through the wizard so operators can step to the previous screen without restarting
 
 ## Default And Advanced Modes
 
