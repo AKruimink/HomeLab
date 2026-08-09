@@ -25,6 +25,8 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/AKruimink/HomeLab/main/s
 
 The script itself lives at [scripts/proxmox/semaphore.sh](c:/Users/AlwinKruimink/source/repos/~Personal/HomeLab/scripts/proxmox/semaphore.sh).
 
+The shared dialog and helper logic for Proxmox-facing scripts lives under [scripts/shared/proxmox-ui.sh](c:/Users/AlwinKruimink/source/repos/~Personal/HomeLab/scripts/shared/proxmox-ui.sh).
+
 ## Reference Pattern
 
 The intended operator experience is inspired by Proxmox VE Helper Scripts:

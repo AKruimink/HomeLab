@@ -23,6 +23,7 @@ Scripts should live in folders that make their execution context obvious.
 Examples:
 
 - `scripts/proxmox/` for scripts that run on a Proxmox host
+- `scripts/shared/` for repository-owned shared shell logic used by multiple scripts
 - `scripts/windows/` for admin workstation utilities if those are introduced later
 - `scripts/linux/` for local operator utilities outside Proxmox if needed later
 
@@ -35,6 +36,7 @@ Examples:
 - Emit credentials and next steps clearly when bootstrap succeeds.
 - Keep external dependencies minimal and obvious.
 - Prefer repository-owned logic over runtime downloads of shared helper libraries.
+- If scripts share behavior, keep that shared behavior in this repository under `scripts/shared/`.
 - Use shell functions only where they reduce repetition without obscuring the flow.
 
 ## Behavior
@@ -66,6 +68,7 @@ When a script provisions infrastructure, prefer the same operator experience acr
 
 - a default mode with safe, fast choices
 - an advanced mode with more control over resources and networking
+- a dialog-driven flow on Proxmox hosts when `whiptail` is available
 - explicit confirmation before create or destroy actions
 
 ## Relationship To Other Automation

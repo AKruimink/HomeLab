@@ -2,6 +2,16 @@
 
 set -Eeuo pipefail
 
+SHARED_RAW_URL="https://raw.githubusercontent.com/AKruimink/HomeLab/main/scripts/shared/proxmox-ui.sh"
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)
+
+if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/../shared/proxmox-ui.sh" ]]; then
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/../shared/proxmox-ui.sh"
+else
+  source <(curl -fsSL "$SHARED_RAW_URL")
+fi
+
 DEFAULT_HOSTNAME="semaphore"
 DEFAULT_CORES=2
 DEFAULT_MEMORY=2048
@@ -24,6 +34,7 @@ DISK="$DEFAULT_DISK"
 BRIDGE="$DEFAULT_BRIDGE"
 VLAN_TAG=""
 IP_CONFIG="dhcp"
+IP_ADDRESS=""
 GATEWAY=""
 TEMPLATE_STORAGE="$DEFAULT_TEMPLATE_STORAGE"
 CONTAINER_STORAGE="$DEFAULT_CONTAINER_STORAGE"
@@ -35,6 +46,7 @@ SEMAPHORE_ADMIN_LOGIN="admin"
 SEMAPHORE_ADMIN_NAME="Administrator"
 SEMAPHORE_ADMIN_EMAIL="admin@homelab.local"
 SEMAPHORE_ADMIN_PASSWORD=""
+INSTALL_MODE="default"
 
 log_info() {
   printf '[INFO] %s\n' "$1"
@@ -57,33 +69,6 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
 }
 
-prompt_with_default() {
-  local label=$1
-  local default_value=$2
-  local result
-
-  read -r -p "$label [$default_value]: " result
-  if [[ -z "$result" ]]; then
-    printf '%s\n' "$default_value"
-  else
-    printf '%s\n' "$result"
-  fi
-}
-
-prompt_secret_with_default() {
-  local label=$1
-  local default_value=$2
-  local result
-
-  read -r -s -p "$label [$default_value]: " result
-  printf '\n'
-  if [[ -z "$result" ]]; then
-    printf '%s\n' "$default_value"
-  else
-    printf '%s\n' "$result"
-  fi
-}
-
 generate_password() {
   openssl rand -base64 18 | tr -dc 'A-Za-z0-9' | head -c 16
 }
@@ -98,6 +83,7 @@ ensure_proxmox_host() {
   require_command pvesh
   require_command ip
   require_command openssl
+  ui_require_whiptail
   command -v pveversion >/dev/null 2>&1 || fail "This script must run on a Proxmox VE host"
 }
 
@@ -114,71 +100,457 @@ validate_container_id() {
   ! pct status "$1" >/dev/null 2>&1
 }
 
-validate_ip_config() {
-  [[ "$1" == "dhcp" || "$1" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]]
+validate_hostname() {
+  [[ "$1" =~ ^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$ ]]
 }
 
 validate_optional_vlan() {
   [[ -z "$1" || "$1" =~ ^[0-9]+$ ]]
 }
 
-choose_mode() {
-  local choice
-  printf 'Select setup mode:\n'
-  printf '1. Default\n'
-  printf '2. Advanced\n'
-  read -r -p 'Choice [1]: ' choice
-  if [[ -z "$choice" || "$choice" == "1" ]]; then
-    printf '%s\n' 'default'
-  elif [[ "$choice" == "2" ]]; then
-    printf '%s\n' 'advanced'
-  else
-    fail 'Invalid mode selection'
-  fi
+validate_ip_cidr() {
+  [[ "$1" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$ ]]
 }
 
-configure_default_settings() {
+reset_defaults() {
   CTID=$(next_container_id)
-  ROOT_PASSWORD=$(generate_password)
-  SEMAPHORE_ADMIN_PASSWORD=$(generate_password)
+  HOSTNAME="$DEFAULT_HOSTNAME"
+  CORES="$DEFAULT_CORES"
+  MEMORY="$DEFAULT_MEMORY"
+  SWAP="$DEFAULT_SWAP"
+  DISK="$DEFAULT_DISK"
+  BRIDGE="$DEFAULT_BRIDGE"
+  VLAN_TAG=""
+  IP_CONFIG="dhcp"
+  IP_ADDRESS=""
+  GATEWAY=""
+  TEMPLATE_STORAGE="$DEFAULT_TEMPLATE_STORAGE"
+  CONTAINER_STORAGE="$DEFAULT_CONTAINER_STORAGE"
+  TEMPLATE_NAME="$DEFAULT_TEMPLATE"
+  START_ON_BOOT="$DEFAULT_START_ON_BOOT"
+  UNPRIVILEGED="$DEFAULT_UNPRIVILEGED"
+  ROOT_PASSWORD=""
+  SEMAPHORE_ADMIN_LOGIN="admin"
+  SEMAPHORE_ADMIN_NAME="Administrator"
+  SEMAPHORE_ADMIN_EMAIL="admin@homelab.local"
+  SEMAPHORE_ADMIN_PASSWORD=""
 }
 
-configure_advanced_settings() {
-  local suggested_ctid
+show_intro_menu() {
+  local choice
 
-  suggested_ctid=$(next_container_id)
-  CTID=$(prompt_with_default 'Container ID' "$suggested_ctid")
-  validate_container_id "$CTID" || fail "Container ID $CTID is invalid or already in use"
+  choice=$(ui_menu \
+    "HomeLab Options" \
+    "\nChoose an option:\n Use TAB or Arrow keys to navigate, ENTER to select.\n" \
+    18 64 4 \
+    "default" "Default Install" \
+    "advanced" "Advanced Install" \
+    "exit" "Exit Script") || exit 0
 
-  HOSTNAME=$(prompt_with_default 'Hostname' "$HOSTNAME")
-  CORES=$(prompt_with_default 'CPU cores' "$CORES")
-  MEMORY=$(prompt_with_default 'Memory in MiB' "$MEMORY")
-  SWAP=$(prompt_with_default 'Swap in MiB' "$SWAP")
-  DISK=$(prompt_with_default 'Disk size in GiB' "$DISK")
-  BRIDGE=$(prompt_with_default 'Bridge' "$BRIDGE")
-  VLAN_TAG=$(prompt_with_default 'VLAN tag, leave blank for none' "$VLAN_TAG")
-  IP_CONFIG=$(prompt_with_default 'IPv4 config, use dhcp or CIDR like 192.168.1.20/24' "$IP_CONFIG")
+  case "$choice" in
+    default)
+      INSTALL_MODE="default"
+      ;;
+    advanced)
+      INSTALL_MODE="advanced"
+      ;;
+    *)
+      exit 0
+      ;;
+  esac
+}
 
-  if [[ "$IP_CONFIG" != 'dhcp' ]]; then
-    GATEWAY=$(prompt_with_default 'Gateway' "$GATEWAY")
+run_default_wizard() {
+  local step=1
+  local result=""
+
+  while (( step <= 5 )); do
+    case "$step" in
+      1)
+        if result=$(ui_password "ROOT PASSWORD" "\nSet Root Password for the container root user.\n\nLeave blank for automatic login (no password)." "Next" "Exit" 12 76); then
+          ROOT_PASSWORD="$result"
+          ((step++))
+        else
+          exit 0
+        fi
+        ;;
+      2)
+        if result=$(ui_input "SEMAPHORE LOGIN" "\nSet the initial Semaphore admin login." "$SEMAPHORE_ADMIN_LOGIN" "Next" "Back"); then
+          [[ -n "$result" ]] || {
+            ui_msg "SEMAPHORE LOGIN" "Semaphore admin login cannot be empty." 9 60
+            continue
+          }
+          SEMAPHORE_ADMIN_LOGIN="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      3)
+        if result=$(ui_input "SEMAPHORE NAME" "\nSet the initial Semaphore admin display name." "$SEMAPHORE_ADMIN_NAME" "Next" "Back"); then
+          [[ -n "$result" ]] || {
+            ui_msg "SEMAPHORE NAME" "Semaphore admin name cannot be empty." 9 60
+            continue
+          }
+          SEMAPHORE_ADMIN_NAME="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      4)
+        if result=$(ui_input "SEMAPHORE EMAIL" "\nSet the initial Semaphore admin email address." "$SEMAPHORE_ADMIN_EMAIL" "Next" "Back"); then
+          [[ -n "$result" ]] || {
+            ui_msg "SEMAPHORE EMAIL" "Semaphore admin email cannot be empty." 9 60
+            continue
+          }
+          SEMAPHORE_ADMIN_EMAIL="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      5)
+        if result=$(ui_password "SEMAPHORE PASSWORD" "\nSet the initial Semaphore admin password.\n\nLeave blank to auto-generate one and show it at the end." "Next" "Back" 12 76); then
+          SEMAPHORE_ADMIN_PASSWORD="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+    esac
+  done
+}
+
+run_advanced_wizard() {
+  local step=1
+  local result=""
+  local selected_ip_mode=""
+  local ct_type_default_on="ON"
+  local ct_type_default_off="OFF"
+
+  while (( step <= 20 )); do
+    case "$step" in
+      1)
+        [[ "$UNPRIVILEGED" == "0" ]] && {
+          ct_type_default_on="OFF"
+          ct_type_default_off="ON"
+        }
+        if result=$(ui_radiolist "CONTAINER TYPE" "\nChoose container type:\n\nUse SPACE to select, ENTER to confirm." 14 58 2 \
+          "1" "Unprivileged (recommended)" "$ct_type_default_on" \
+          "0" "Privileged" "$ct_type_default_off"); then
+          UNPRIVILEGED="$result"
+          ((step++))
+        else
+          exit 0
+        fi
+        ;;
+      2)
+        if result=$(ui_password "ROOT PASSWORD" "\nSet Root Password (needed for root SSH access)\n\nLeave blank for automatic login (no password)" "Next" "Back" 12 76); then
+          ROOT_PASSWORD="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      3)
+        if result=$(ui_input "CONTAINER ID" "\nSet Container ID" "$CTID" "Next" "Back"); then
+          if ! validate_container_id "$result"; then
+            ui_msg "CONTAINER ID" "Container ID '$result' is invalid or already in use." 10 62
+            continue
+          fi
+          CTID="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      4)
+        if result=$(ui_input "HOSTNAME" "\nSet Hostname (or FQDN), e.g. host.example.com" "$HOSTNAME" "Next" "Back"); then
+          if [[ -z "$result" ]]; then
+            ui_msg "HOSTNAME" "Hostname cannot be empty." 9 58
+            continue
+          fi
+          if ! validate_hostname "$result"; then
+            ui_msg "HOSTNAME" "Invalid hostname. Use lowercase letters, digits, dots, and hyphens." 10 66
+            continue
+          fi
+          HOSTNAME="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      5)
+        if result=$(ui_input "DISK SIZE" "\nSet Disk Size in GB" "$DISK" "Next" "Back"); then
+          validate_integer "$result" || {
+            ui_msg "DISK SIZE" "Disk size must be a whole number." 9 58
+            continue
+          }
+          DISK="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      6)
+        if result=$(ui_input "CPU CORES" "\nSet CPU Cores" "$CORES" "Next" "Back"); then
+          validate_integer "$result" || {
+            ui_msg "CPU CORES" "CPU cores must be a whole number." 9 58
+            continue
+          }
+          CORES="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      7)
+        if result=$(ui_input "MEMORY" "\nSet Memory in MiB" "$MEMORY" "Next" "Back"); then
+          validate_integer "$result" || {
+            ui_msg "MEMORY" "Memory must be a whole number." 9 58
+            continue
+          }
+          MEMORY="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      8)
+        if result=$(ui_input "SWAP" "\nSet Swap in MiB" "$SWAP" "Next" "Back"); then
+          validate_integer "$result" || {
+            ui_msg "SWAP" "Swap must be a whole number." 9 58
+            continue
+          }
+          SWAP="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      9)
+        if result=$(ui_input "BRIDGE" "\nSet network bridge" "$BRIDGE" "Next" "Back"); then
+          [[ -n "$result" ]] || {
+            ui_msg "BRIDGE" "Bridge cannot be empty." 9 58
+            continue
+          }
+          BRIDGE="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      10)
+        if result=$(ui_input "VLAN TAG" "\nSet VLAN tag or leave blank for none" "$VLAN_TAG" "Next" "Back"); then
+          validate_optional_vlan "$result" || {
+            ui_msg "VLAN TAG" "VLAN tag must be blank or numeric." 9 58
+            continue
+          }
+          VLAN_TAG="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      11)
+        if selected_ip_mode=$(ui_radiolist "IPV4 CONFIG" "\nChoose network mode:" 14 58 2 \
+          "dhcp" "DHCP" $([[ "$IP_CONFIG" == "dhcp" ]] && printf 'ON' || printf 'OFF') \
+          "static" "Static" $([[ "$IP_CONFIG" == "static" ]] && printf 'ON' || printf 'OFF')); then
+          IP_CONFIG="$selected_ip_mode"
+          if [[ "$IP_CONFIG" == "dhcp" ]]; then
+            IP_ADDRESS=""
+            GATEWAY=""
+          fi
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      12)
+        if [[ "$IP_CONFIG" == "dhcp" ]]; then
+          ((step++))
+          continue
+        fi
+        if result=$(ui_input "STATIC IPV4" "\nSet static IPv4 in CIDR format, e.g. 192.168.1.20/24" "$IP_ADDRESS" "Next" "Back"); then
+          validate_ip_cidr "$result" || {
+            ui_msg "STATIC IPV4" "IPv4 address must be in CIDR format." 9 62
+            continue
+          }
+          IP_ADDRESS="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      13)
+        if [[ "$IP_CONFIG" == "dhcp" ]]; then
+          ((step++))
+          continue
+        fi
+        if result=$(ui_input "GATEWAY" "\nSet IPv4 gateway" "$GATEWAY" "Next" "Back"); then
+          [[ -n "$result" ]] || {
+            ui_msg "GATEWAY" "Gateway cannot be empty for static networking." 9 62
+            continue
+          }
+          GATEWAY="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      14)
+        if ui_yesno "START ON BOOT" "\nStart container when the Proxmox host boots?" 11 60 "Yes" "No"; then
+          START_ON_BOOT=1
+        else
+          START_ON_BOOT=0
+        fi
+        ((step++))
+        ;;
+      15)
+        if result=$(ui_input "TEMPLATE STORAGE" "\nSet template storage name" "$TEMPLATE_STORAGE" "Next" "Back"); then
+          [[ -n "$result" ]] || {
+            ui_msg "TEMPLATE STORAGE" "Template storage cannot be empty." 9 62
+            continue
+          }
+          TEMPLATE_STORAGE="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      16)
+        if result=$(ui_input "CONTAINER STORAGE" "\nSet container storage name" "$CONTAINER_STORAGE" "Next" "Back"); then
+          [[ -n "$result" ]] || {
+            ui_msg "CONTAINER STORAGE" "Container storage cannot be empty." 9 62
+            continue
+          }
+          CONTAINER_STORAGE="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      17)
+        if result=$(ui_input "SEMAPHORE LOGIN" "\nSet the initial Semaphore admin login." "$SEMAPHORE_ADMIN_LOGIN" "Next" "Back"); then
+          [[ -n "$result" ]] || {
+            ui_msg "SEMAPHORE LOGIN" "Semaphore admin login cannot be empty." 9 62
+            continue
+          }
+          SEMAPHORE_ADMIN_LOGIN="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      18)
+        if result=$(ui_input "SEMAPHORE NAME" "\nSet the initial Semaphore admin display name." "$SEMAPHORE_ADMIN_NAME" "Next" "Back"); then
+          [[ -n "$result" ]] || {
+            ui_msg "SEMAPHORE NAME" "Semaphore admin name cannot be empty." 9 62
+            continue
+          }
+          SEMAPHORE_ADMIN_NAME="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      19)
+        if result=$(ui_input "SEMAPHORE EMAIL" "\nSet the initial Semaphore admin email address." "$SEMAPHORE_ADMIN_EMAIL" "Next" "Back"); then
+          [[ -n "$result" ]] || {
+            ui_msg "SEMAPHORE EMAIL" "Semaphore admin email cannot be empty." 9 62
+            continue
+          }
+          SEMAPHORE_ADMIN_EMAIL="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+      20)
+        if result=$(ui_password "SEMAPHORE PASSWORD" "\nSet the initial Semaphore admin password.\n\nLeave blank to auto-generate one and show it at the end." "Next" "Back" 12 76); then
+          SEMAPHORE_ADMIN_PASSWORD="$result"
+          ((step++))
+        else
+          ((step--))
+        fi
+        ;;
+    esac
+  done
+}
+
+build_net0() {
+  local ip_value="dhcp"
+  local net0
+
+  if [[ "$IP_CONFIG" == "static" ]]; then
+    ip_value="$IP_ADDRESS"
   fi
 
-  START_ON_BOOT=$(prompt_with_default 'Start on boot, 1 or 0' "$START_ON_BOOT")
-  UNPRIVILEGED=$(prompt_with_default 'Unprivileged container, 1 or 0' "$UNPRIVILEGED")
-  TEMPLATE_STORAGE=$(prompt_with_default 'Template storage' "$TEMPLATE_STORAGE")
-  CONTAINER_STORAGE=$(prompt_with_default 'Container storage' "$CONTAINER_STORAGE")
-  TEMPLATE_NAME=$(prompt_with_default 'LXC template name' "$TEMPLATE_NAME")
-  ROOT_PASSWORD=$(prompt_secret_with_default 'Linux root password' "$(generate_password)")
-  SEMAPHORE_ADMIN_LOGIN=$(prompt_with_default 'Semaphore admin login' "$SEMAPHORE_ADMIN_LOGIN")
-  SEMAPHORE_ADMIN_NAME=$(prompt_with_default 'Semaphore admin name' "$SEMAPHORE_ADMIN_NAME")
-  SEMAPHORE_ADMIN_EMAIL=$(prompt_with_default 'Semaphore admin email' "$SEMAPHORE_ADMIN_EMAIL")
-  SEMAPHORE_ADMIN_PASSWORD=$(prompt_secret_with_default 'Semaphore admin password' "$(generate_password)")
+  net0="name=eth0,bridge=${BRIDGE},ip=${ip_value}"
+
+  if [[ -n "$VLAN_TAG" ]]; then
+    net0+=";tag=${VLAN_TAG}"
+  fi
+
+  if [[ "$IP_CONFIG" == "static" && -n "$GATEWAY" ]]; then
+    net0+=";gw=${GATEWAY}"
+  fi
+
+  printf '%s\n' "$net0" | tr ';' ','
 }
 
-collect_identity_defaults() {
-  SEMAPHORE_ADMIN_LOGIN=$(prompt_with_default 'Semaphore admin login' "$SEMAPHORE_ADMIN_LOGIN")
-  SEMAPHORE_ADMIN_NAME=$(prompt_with_default 'Semaphore admin name' "$SEMAPHORE_ADMIN_NAME")
-  SEMAPHORE_ADMIN_EMAIL=$(prompt_with_default 'Semaphore admin email' "$SEMAPHORE_ADMIN_EMAIL")
+print_summary_text() {
+  local root_display="(automatic login, no password)"
+  local semaphore_password_display="(auto-generate)"
+  local ip_display="DHCP"
+
+  [[ -n "$ROOT_PASSWORD" ]] && root_display="(set)"
+  [[ -n "$SEMAPHORE_ADMIN_PASSWORD" ]] && semaphore_password_display="(set)"
+  [[ "$IP_CONFIG" == "static" ]] && ip_display="$IP_ADDRESS via $GATEWAY"
+
+  cat <<EOF
+Container Type:         $( [[ "$UNPRIVILEGED" == "1" ]] && printf 'Unprivileged' || printf 'Privileged' )
+Container ID:           $CTID
+Hostname:               $HOSTNAME
+
+Resources:
+  Disk:                 ${DISK} GB
+  CPU:                  $CORES cores
+  Memory:               ${MEMORY} MiB
+  Swap:                 ${SWAP} MiB
+
+Network:
+  Bridge:               $BRIDGE
+  VLAN:                 ${VLAN_TAG:-none}
+  IPv4:                 $ip_display
+
+Storage:
+  Template storage:     $TEMPLATE_STORAGE
+  Container storage:    $CONTAINER_STORAGE
+  Template:             $TEMPLATE_NAME
+
+Boot:
+  Start on boot:        $( [[ "$START_ON_BOOT" == "1" ]] && printf 'yes' || printf 'no' )
+
+Credentials:
+  Root password:        $root_display
+  Semaphore login:      $SEMAPHORE_ADMIN_LOGIN
+  Semaphore name:       $SEMAPHORE_ADMIN_NAME
+  Semaphore email:      $SEMAPHORE_ADMIN_EMAIL
+  Semaphore password:   $semaphore_password_display
+EOF
+}
+
+confirm_summary() {
+  local summary
+  summary=$(print_summary_text)
+
+  if ui_yesno "CONFIRM SETTINGS" "$summary\n\nCreate Semaphore LXC with these settings?" 28 78 "Create LXC" "Do-Over"; then
+    return 0
+  fi
+
+  return 1
 }
 
 validate_settings() {
@@ -189,13 +561,15 @@ validate_settings() {
   validate_integer "$DISK" || fail 'Disk size must be numeric'
   validate_integer "$START_ON_BOOT" || fail 'Start on boot must be 1 or 0'
   validate_integer "$UNPRIVILEGED" || fail 'Unprivileged flag must be 1 or 0'
-  validate_ip_config "$IP_CONFIG" || fail 'IPv4 config must be dhcp or CIDR notation'
   validate_optional_vlan "$VLAN_TAG" || fail 'VLAN tag must be blank or numeric'
-  [[ -n "$ROOT_PASSWORD" ]] || fail 'Linux root password cannot be empty'
+  [[ -n "$HOSTNAME" ]] || fail 'Hostname cannot be empty'
   [[ -n "$SEMAPHORE_ADMIN_LOGIN" ]] || fail 'Semaphore admin login cannot be empty'
   [[ -n "$SEMAPHORE_ADMIN_NAME" ]] || fail 'Semaphore admin name cannot be empty'
   [[ -n "$SEMAPHORE_ADMIN_EMAIL" ]] || fail 'Semaphore admin email cannot be empty'
-  [[ -n "$SEMAPHORE_ADMIN_PASSWORD" ]] || fail 'Semaphore admin password cannot be empty'
+  if [[ "$IP_CONFIG" == "static" ]]; then
+    validate_ip_cidr "$IP_ADDRESS" || fail 'Static IPv4 must be in CIDR notation'
+    [[ -n "$GATEWAY" ]] || fail 'Gateway cannot be empty for static IPv4'
+  fi
 }
 
 template_exists() {
@@ -212,71 +586,37 @@ ensure_template() {
   pveam download "$TEMPLATE_STORAGE" "$TEMPLATE_NAME"
 }
 
-build_net0() {
-  local net0
-  net0="name=eth0,bridge=${BRIDGE},ip=${IP_CONFIG}"
-
-  if [[ -n "$VLAN_TAG" ]]; then
-    net0+=";tag=${VLAN_TAG}"
+finalize_generated_values() {
+  if [[ -z "$SEMAPHORE_ADMIN_PASSWORD" ]]; then
+    SEMAPHORE_ADMIN_PASSWORD=$(generate_password)
   fi
-
-  if [[ "$IP_CONFIG" != 'dhcp' && -n "$GATEWAY" ]]; then
-    net0+=";gw=${GATEWAY}"
-  fi
-
-  printf '%s\n' "$net0" | tr ';' ','
-}
-
-print_summary() {
-  cat <<EOF
-
-Semaphore bootstrap summary
---------------------------
-Container ID:            $CTID
-Hostname:                $HOSTNAME
-CPU cores:               $CORES
-Memory MiB:              $MEMORY
-Swap MiB:                $SWAP
-Disk GiB:                $DISK
-Bridge:                  $BRIDGE
-VLAN tag:                ${VLAN_TAG:-none}
-IPv4 config:             $IP_CONFIG
-Gateway:                 ${GATEWAY:-none}
-Template storage:        $TEMPLATE_STORAGE
-Container storage:       $CONTAINER_STORAGE
-Template name:           $TEMPLATE_NAME
-Start on boot:           $START_ON_BOOT
-Unprivileged:            $UNPRIVILEGED
-Semaphore admin login:   $SEMAPHORE_ADMIN_LOGIN
-Semaphore admin email:   $SEMAPHORE_ADMIN_EMAIL
-
-EOF
-}
-
-confirm_summary() {
-  local answer
-  read -r -p 'Create this Semaphore LXC? [y/N]: ' answer
-  [[ "$answer" =~ ^([yY][eE][sS]|[yY])$ ]] || fail 'Aborted by user'
 }
 
 create_container() {
   local net0
+  local pct_args
 
   net0=$(build_net0)
+  pct_args=(
+    create "$CTID" "${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE_NAME}"
+    -arch amd64
+    -hostname "$HOSTNAME"
+    -cores "$CORES"
+    -memory "$MEMORY"
+    -swap "$SWAP"
+    -rootfs "${CONTAINER_STORAGE}:${DISK}"
+    -net0 "$net0"
+    -onboot "$START_ON_BOOT"
+    -unprivileged "$UNPRIVILEGED"
+    -features nesting=1,keyctl=1
+  )
+
+  if [[ -n "$ROOT_PASSWORD" ]]; then
+    pct_args+=(-password "$ROOT_PASSWORD")
+  fi
 
   log_info "Creating LXC container $CTID"
-  pct create "$CTID" "${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE_NAME}" \
-    -arch amd64 \
-    -hostname "$HOSTNAME" \
-    -cores "$CORES" \
-    -memory "$MEMORY" \
-    -swap "$SWAP" \
-    -rootfs "${CONTAINER_STORAGE}:${DISK}" \
-    -net0 "$net0" \
-    -password "$ROOT_PASSWORD" \
-    -onboot "$START_ON_BOOT" \
-    -unprivileged "$UNPRIVILEGED" \
-    -features nesting=1,keyctl=1
+  pct "${pct_args[@]}"
 }
 
 start_container() {
@@ -303,12 +643,13 @@ wait_for_container_network() {
 }
 
 install_semaphore_stack() {
-  local escaped_login escaped_name escaped_email escaped_password
+  local escaped_login escaped_name escaped_email escaped_password root_password_display
 
   escaped_login=$(printf '%q' "$SEMAPHORE_ADMIN_LOGIN")
   escaped_name=$(printf '%q' "$SEMAPHORE_ADMIN_NAME")
   escaped_email=$(printf '%q' "$SEMAPHORE_ADMIN_EMAIL")
   escaped_password=$(printf '%q' "$SEMAPHORE_ADMIN_PASSWORD")
+  root_password_display=${ROOT_PASSWORD:-automatic-login-no-password}
 
   log_info "Installing Semaphore, SQLite, and Ansible inside container $CTID"
   pct exec "$CTID" -- bash -lc "export DEBIAN_FRONTEND=noninteractive
@@ -360,7 +701,7 @@ systemctl daemon-reload
 systemctl enable --now semaphore
 cat >/root/semaphore-bootstrap.creds <<EOF
 Linux root user: root
-Linux root password: ${ROOT_PASSWORD}
+Linux root password: ${root_password_display}
 Semaphore URL: http://\$(hostname -I | awk '{print \$1}'):${DEFAULT_SEMAPHORE_PORT}
 Semaphore login: ${SEMAPHORE_ADMIN_LOGIN}
 Semaphore email: ${SEMAPHORE_ADMIN_EMAIL}
@@ -375,8 +716,10 @@ container_ip() {
 
 print_completion() {
   local ip_value
+  local root_password_display="(automatic login, no password)"
 
   ip_value=$(container_ip)
+  [[ -n "$ROOT_PASSWORD" ]] && root_password_display="$ROOT_PASSWORD"
 
   cat <<EOF
 
@@ -387,7 +730,7 @@ Hostname:              $HOSTNAME
 Container IP:          ${ip_value:-unknown}
 Semaphore URL:         http://${ip_value:-<container-ip>}:${DEFAULT_SEMAPHORE_PORT}
 Linux root user:       root
-Linux root password:   $ROOT_PASSWORD
+Linux root password:   $root_password_display
 Semaphore login:       $SEMAPHORE_ADMIN_LOGIN
 Semaphore email:       $SEMAPHORE_ADMIN_EMAIL
 Semaphore password:    $SEMAPHORE_ADMIN_PASSWORD
@@ -403,23 +746,27 @@ EOF
 }
 
 main() {
-  local mode
-
   ensure_root
   ensure_proxmox_host
-  mode=$(choose_mode)
 
-  if [[ "$mode" == 'default' ]]; then
-    configure_default_settings
-    collect_identity_defaults
-  else
-    configure_advanced_settings
-  fi
+  while true; do
+    reset_defaults
+    show_intro_menu
 
+    if [[ "$INSTALL_MODE" == "default" ]]; then
+      run_default_wizard
+    else
+      run_advanced_wizard
+    fi
+
+    if confirm_summary; then
+      break
+    fi
+  done
+
+  finalize_generated_values
   validate_settings
   ensure_template
-  print_summary
-  confirm_summary
   create_container
   start_container
   wait_for_container_network
