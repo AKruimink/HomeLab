@@ -12,7 +12,7 @@ else
   source <(curl -fsSL "$SHARED_RAW_URL")
 fi
 
-  \"port\": "${DEFAULT_SEMAPHORE_PORT}",
+DEFAULT_HOSTNAME="semaphore"
 DEFAULT_CORES=2
 DEFAULT_MEMORY=2048
 DEFAULT_SWAP=512
