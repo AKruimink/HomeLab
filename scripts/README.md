@@ -10,10 +10,6 @@ These scripts should stay narrow in scope.
 
 Public entrypoints should be easy to execute directly from the repository when appropriate.
 
-Current script areas:
-
-- [scripts/proxmox/semaphore.sh](c:/Users/AlwinKruimink/source/repos/~Personal/HomeLab/scripts/proxmox/semaphore.sh)
-
 Example:
 
 ```bash
