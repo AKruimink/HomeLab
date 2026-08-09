@@ -642,12 +642,15 @@ install_semaphore_binary() {
     | grep -E "linux_${arch}\.deb|_${arch}\.deb" \
     | head -n1)
 
-  [[ -n "$asset_url" ]] || fail "Could not find a Semaphore .deb for architecture '$arch'"
+  if [[ -z "$asset_url" ]]; then
+    printf '[ERROR] Could not find a Semaphore .deb for architecture %s\n' "$arch" >&2
+    return 1
+  fi
 
   temp_deb=$(mktemp --suffix=.deb)
-  log_info "Downloading Semaphore package"
+  printf '[INFO] Downloading Semaphore package\n'
   curl -fL "$asset_url" -o "$temp_deb"
-  log_info "Installing Semaphore package"
+  printf '[INFO] Installing Semaphore package\n'
   dpkg -i "$temp_deb" || apt-get -f install -y
   rm -f "$temp_deb"
 }
