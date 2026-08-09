@@ -12,7 +12,7 @@ else
   source <(curl -fsSL "$SHARED_RAW_URL")
 fi
 
-DEFAULT_HOSTNAME="semaphore"
+  \"port\": "${DEFAULT_SEMAPHORE_PORT}",
 DEFAULT_CORES=2
 DEFAULT_MEMORY=2048
 DEFAULT_SWAP=512
@@ -737,7 +737,7 @@ cat >/opt/semaphore/config.json <<'EOF'
     \"host\": \"/opt/semaphore/database.sqlite\"
   },
   \"dialect\": \"sqlite\",
-  \"port\": ${DEFAULT_SEMAPHORE_PORT},
+  \"port\": \"${DEFAULT_SEMAPHORE_PORT}\",
   \"interface\": \"0.0.0.0\",
   \"tmp_path\": \"/opt/semaphore/tmp\",
   \"cookie_hash\": \"\${COOKIE_HASH}\",
