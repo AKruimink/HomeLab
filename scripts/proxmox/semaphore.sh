@@ -723,6 +723,7 @@ install_semaphore_stack() {
   log_info "Installing Semaphore, SQLite, and Ansible inside container $CTID"
   pct exec "$CTID" -- bash -lc "export DEBIAN_FRONTEND=noninteractive
 set -Eeuo pipefail
+SEMAPHORE_PORT=${DEFAULT_SEMAPHORE_PORT}
 apt-get update
 apt-get install -y curl gpg sqlite3 ansible
 $(declare -f install_semaphore_binary)
@@ -737,7 +738,7 @@ cat >/opt/semaphore/config.json <<'EOF'
     \"host\": \"/opt/semaphore/database.sqlite\"
   },
   \"dialect\": \"sqlite\",
-  \"port\": \"${DEFAULT_SEMAPHORE_PORT}\",
+  \"port\": \"${SEMAPHORE_PORT}\",
   \"interface\": \"0.0.0.0\",
   \"tmp_path\": \"/opt/semaphore/tmp\",
   \"cookie_hash\": \"\${COOKIE_HASH}\",
@@ -768,7 +769,7 @@ systemctl enable --now semaphore
 cat >/root/semaphore-bootstrap.creds <<EOF
 Linux root user: root
 Linux root password: ${root_password_display}
-Semaphore URL: http://\$(hostname -I | awk '{print \$1}'):${DEFAULT_SEMAPHORE_PORT}
+Semaphore URL: http://\$(hostname -I | awk '{print \$1}'):${SEMAPHORE_PORT}
 Semaphore login: ${SEMAPHORE_ADMIN_LOGIN}
 Semaphore email: ${SEMAPHORE_ADMIN_EMAIL}
 Semaphore password: ${SEMAPHORE_ADMIN_PASSWORD}
