@@ -137,11 +137,11 @@ pve_ensure_lxc_template() {
 
 build_lxc_net0() {
   local bridge="$1"
-  local use_dhcp="$2"
+  local network_mode="$2"
   local ipv4="$3"
   local gateway="$4"
 
-  if [[ "$use_dhcp" == "yes" ]]; then
+  if [[ "$network_mode" == "dhcp" ]]; then
     printf '%s' "name=eth0,bridge=${bridge},ip=dhcp"
     return 0
   fi

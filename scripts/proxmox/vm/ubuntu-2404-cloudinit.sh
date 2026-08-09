@@ -39,9 +39,7 @@ main() {
 
   vm_apply_default_settings "ubuntu-2404-base" "2" "4096" "20"
 
-  mode="$(prompt_menu "Deployment Mode" "Choose how you want to configure this VM." \
-    "default" "Use sensible defaults with minimal prompts" \
-    "advanced" "Review and change all major VM settings")" || exit 0
+  mode="$(prompt_default_or_advanced)" || exit 0
 
   if [[ "$mode" == "advanced" ]]; then
     vm_prompt_advanced_settings || exit 0

@@ -39,9 +39,7 @@ create_flow() {
 
   lxc_apply_default_settings "semaphore" "2" "2048" "8" "ubuntu" "24.04"
 
-  mode="$(prompt_menu "Deployment Mode" "Choose how you want to configure ${APP_NAME}." \
-    "default" "Use sensible defaults with minimal prompts" \
-    "advanced" "Review and change all major container settings")" || exit 0
+  mode="$(prompt_default_or_advanced)" || exit 0
 
   if [[ "$mode" == "advanced" ]]; then
     lxc_prompt_advanced_settings || exit 0

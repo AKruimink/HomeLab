@@ -6,6 +6,7 @@ fi
 HOMELAB_PROXMOX_COMMON_LOADED=1
 
 HOMELAB_PROXMOX_DEFAULT_BASE="${HOMELAB_PROXMOX_DEFAULT_BASE:-https://raw.githubusercontent.com/AKruimink/HomeLab/main/scripts/proxmox}"
+HOMELAB_WHIPTAIL_BACKTITLE="${HOMELAB_WHIPTAIL_BACKTITLE:-Proxmox VE Helper Scripts}"
 
 color() {
   YW=$'\033[33m'
@@ -37,15 +38,15 @@ load_common() {
 }
 
 msg_info() {
-  echo -e "${INFO}${YW}$1${CL}"
+  echo -e "${INFO}${YW}$1${CL}" >&2
 }
 
 msg_ok() {
-  echo -e "${OK_ICON}${GN}$1${CL}"
+  echo -e "${OK_ICON}${GN}$1${CL}" >&2
 }
 
 msg_warn() {
-  echo -e "${WARN_ICON}${YW}$1${CL}"
+  echo -e "${WARN_ICON}${YW}$1${CL}" >&2
 }
 
 msg_error() {
@@ -119,7 +120,7 @@ prompt_yes_no() {
     if [[ "$default" == "no" ]]; then
       yes_args=(--defaultno)
     fi
-    if whiptail --backtitle "HomeLab Proxmox Scripts" --title "$title" "${yes_args[@]}" --yesno "$question" 12 72; then
+    if whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" "${yes_args[@]}" --yesno "$question" 12 72; then
       return 0
     fi
     return 1
@@ -139,7 +140,7 @@ prompt_input() {
   local result
 
   if command_exists whiptail; then
-    result=$(whiptail --backtitle "HomeLab Proxmox Scripts" --title "$title" --inputbox "$prompt" 12 72 "$default_value" 3>&1 1>&2 2>&3) || return 1
+    result=$(whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --inputbox "$prompt" 12 72 "$default_value" 3>&1 1>&2 2>&3) || return 1
     printf '%s' "$result"
     return 0
   fi
@@ -154,7 +155,7 @@ prompt_password() {
   local result
 
   if command_exists whiptail; then
-    result=$(whiptail --backtitle "HomeLab Proxmox Scripts" --title "$title" --passwordbox "$prompt" 12 72 3>&1 1>&2 2>&3) || return 1
+    result=$(whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --passwordbox "$prompt" 12 72 3>&1 1>&2 2>&3) || return 1
     printf '%s' "$result"
     return 0
   fi
@@ -170,7 +171,7 @@ prompt_menu() {
   shift 2
 
   if command_exists whiptail; then
-    whiptail --backtitle "HomeLab Proxmox Scripts" --title "$title" --menu "$prompt" 20 78 10 "$@" 3>&1 1>&2 2>&3
+    whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --menu "$prompt" 20 78 10 "$@" 3>&1 1>&2 2>&3
     return $?
   fi
 
@@ -183,6 +184,36 @@ prompt_menu() {
   done
   read -r -p "$prompt " choice
   printf '%s' "$choice"
+}
+
+prompt_default_or_advanced() {
+  if command_exists whiptail; then
+    if whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "SETTINGS" --yesno "Use default settings?" --no-button "Advanced" 10 58; then
+      printf '%s' "default"
+    else
+      printf '%s' "advanced"
+    fi
+    return 0
+  fi
+
+  if prompt_yes_no "SETTINGS" "Use default settings?" "yes"; then
+    printf '%s' "default"
+  else
+    printf '%s' "advanced"
+  fi
+}
+
+prompt_two_option_menu() {
+  local title="$1"
+  local prompt="$2"
+  local option_a="$3"
+  local option_a_desc="$4"
+  local option_b="$5"
+  local option_b_desc="$6"
+
+  prompt_menu "$title" "$prompt" \
+    "$option_a" "$option_a_desc" \
+    "$option_b" "$option_b_desc"
 }
 
 next_lxc_id() {

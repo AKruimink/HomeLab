@@ -14,117 +14,126 @@ lxc_apply_default_settings() {
   local default_version="$6"
 
   CTID="${CTID:-$(next_lxc_id)}"
-  HOSTNAME="${HOSTNAME:-$default_hostname}"
-  CPU="${CPU:-$default_cpu}"
-  RAM="${RAM:-$default_ram}"
-  DISK="${DISK:-$default_disk}"
+  CT_HOSTNAME="${CT_HOSTNAME:-${var_hostname:-$default_hostname}}"
+  CT_CORES="${CT_CORES:-${var_cpu:-$default_cpu}}"
+  CT_MEMORY="${CT_MEMORY:-${var_ram:-$default_ram}}"
+  CT_DISK="${CT_DISK:-${var_disk:-$default_disk}}"
   OS_ID="${OS_ID:-$default_os}"
   OS_VERSION="${OS_VERSION:-$default_version}"
-  BRIDGE="${BRIDGE:-$(pve_first_bridge)}"
-  USE_DHCP="${USE_DHCP:-yes}"
-  IPV4_CIDR="${IPV4_CIDR:-}"
-  GATEWAY="${GATEWAY:-}"
-  UNPRIVILEGED="${UNPRIVILEGED:-1}"
-  ONBOOT="${ONBOOT:-1}"
-  IPV6_METHOD="${IPV6_METHOD:-auto}"
-  TEMPLATE_STORAGE="${TEMPLATE_STORAGE:-$(pve_first_storage "vztmpl")}"
-  CONTAINER_STORAGE="${CONTAINER_STORAGE:-$(pve_first_storage "rootdir")}"
+  CT_BRIDGE="${CT_BRIDGE:-$(pve_first_bridge)}"
+  CT_NETWORK_MODE="${CT_NETWORK_MODE:-dhcp}"
+  CT_IPV4_CIDR="${CT_IPV4_CIDR:-}"
+  CT_GATEWAY="${CT_GATEWAY:-}"
+  CT_UNPRIVILEGED="${CT_UNPRIVILEGED:-1}"
+  CT_ONBOOT="${CT_ONBOOT:-1}"
+  CT_IPV6_METHOD="${CT_IPV6_METHOD:-auto}"
+  CT_TEMPLATE_STORAGE="${CT_TEMPLATE_STORAGE:-$(pve_first_storage "vztmpl")}"
+  CT_CONTAINER_STORAGE="${CT_CONTAINER_STORAGE:-$(pve_first_storage "rootdir")}"
 }
 
 lxc_prompt_advanced_settings() {
   local selection
 
   while true; do
-    selection="$(prompt_input "Container ID" "Choose a numeric CTID." "${CTID:-$(next_lxc_id)}")" || return 1
+    selection="$(prompt_input "CONTAINER ID" "Set Container ID" "${CTID:-$(next_lxc_id)}")" || return 1
     validate_integer "$selection" && break
     msg_warn "CTID must be a numeric value."
   done
   CTID="$selection"
 
   while true; do
-    selection="$(prompt_input "Hostname" "Enter the container hostname." "${HOSTNAME:-semaphore}")" || return 1
+    selection="$(prompt_input "HOSTNAME" "Set Hostname" "${CT_HOSTNAME:-semaphore}")" || return 1
     validate_hostname "$selection" && break
     msg_warn "Hostname must start with a letter or number and may contain hyphens."
   done
-  HOSTNAME="$selection"
+  CT_HOSTNAME="$selection"
 
-  selection="$(prompt_menu "Operating System" "Select the LXC operating system." \
+  selection="$(prompt_menu "OPERATING SYSTEM" "Select Operating System" \
     "ubuntu-24.04" "Ubuntu 24.04 LTS" \
     "debian-12" "Debian 12")" || return 1
   OS_ID="${selection%-*}"
   OS_VERSION="${selection#*-}"
 
   while true; do
-    selection="$(prompt_input "CPU Cores" "Set the number of vCPU cores." "${CPU:-2}")" || return 1
+    selection="$(prompt_input "CPU CORES" "Set CPU Cores" "${CT_CORES:-2}")" || return 1
     validate_integer "$selection" && break
     msg_warn "CPU cores must be a positive integer."
   done
-  CPU="$selection"
+  CT_CORES="$selection"
 
   while true; do
-    selection="$(prompt_input "Memory" "Set the RAM size in MiB." "${RAM:-2048}")" || return 1
+    selection="$(prompt_input "RAM" "Set RAM in MiB" "${CT_MEMORY:-2048}")" || return 1
     validate_integer "$selection" && break
     msg_warn "RAM must be a positive integer in MiB."
   done
-  RAM="$selection"
+  CT_MEMORY="$selection"
 
   while true; do
-    selection="$(prompt_input "Disk" "Set the root disk size in GiB." "${DISK:-8}")" || return 1
+    selection="$(prompt_input "DISK SIZE" "Set Disk Size in GiB" "${CT_DISK:-8}")" || return 1
     validate_integer "$selection" && break
     msg_warn "Disk size must be a positive integer in GiB."
   done
-  DISK="$selection"
+  CT_DISK="$selection"
 
-  BRIDGE="$(pve_pick_bridge "${BRIDGE:-}")" || return 1
+  CT_BRIDGE="$(pve_pick_bridge "${CT_BRIDGE:-}")" || return 1
 
-  if prompt_yes_no "IPv4" "Use DHCP for IPv4?" "yes"; then
-    USE_DHCP="yes"
-    IPV4_CIDR=""
-    GATEWAY=""
+  selection="$(prompt_two_option_menu "IP ADDRESS" "Select IP Address Mode" \
+    "dhcp" "Automatic DHCP address" \
+    "static" "Manual static IPv4 address")" || return 1
+  CT_NETWORK_MODE="$selection"
+
+  if [[ "$CT_NETWORK_MODE" == "static" ]]; then
+    CT_IPV4_CIDR="$(prompt_input "IP ADDRESS" "Set a Static IPv4 CIDR Address" "${CT_IPV4_CIDR:-}")" || return 1
+    CT_GATEWAY="$(prompt_input "GATEWAY" "Set Gateway IP Address" "${CT_GATEWAY:-}")" || return 1
   else
-    USE_DHCP="no"
-    IPV4_CIDR="$(prompt_input "IPv4 Address" "Enter the static IPv4 CIDR (example: 192.168.1.50/24)." "${IPV4_CIDR:-}")" || return 1
-    GATEWAY="$(prompt_input "Gateway" "Enter the IPv4 gateway (example: 192.168.1.1)." "${GATEWAY:-}")" || return 1
+    CT_IPV4_CIDR=""
+    CT_GATEWAY=""
   fi
 
-  if prompt_yes_no "Container Privileges" "Create this as an unprivileged container?" "yes"; then
-    UNPRIVILEGED="1"
+  selection="$(prompt_two_option_menu "CONTAINER TYPE" "Select Container Type" \
+    "unprivileged" "Recommended for most applications" \
+    "privileged" "Use only when the application requires it")" || return 1
+  if [[ "$selection" == "unprivileged" ]]; then
+    CT_UNPRIVILEGED="1"
   else
-    UNPRIVILEGED="0"
+    CT_UNPRIVILEGED="0"
   fi
 
-  if prompt_yes_no "Boot Behavior" "Start this container automatically on node boot?" "yes"; then
-    ONBOOT="1"
+  if prompt_yes_no "START AT BOOT" "Start Container at boot?" "yes"; then
+    CT_ONBOOT="1"
   else
-    ONBOOT="0"
+    CT_ONBOOT="0"
   fi
 
-  if prompt_yes_no "IPv6" "Leave IPv6 enabled inside the container?" "yes"; then
-    IPV6_METHOD="auto"
+  selection="$(prompt_two_option_menu "IPV6" "Select IPv6 Mode" \
+    "auto" "Keep IPv6 enabled" \
+    "disable" "Disable IPv6 in the container")" || return 1
+  if [[ "$selection" == "auto" ]]; then
+    CT_IPV6_METHOD="auto"
   else
-    IPV6_METHOD="disable"
+    CT_IPV6_METHOD="disable"
   fi
 
-  TEMPLATE_STORAGE="$(pve_pick_storage "vztmpl" "Template Storage" "Select where the LXC template should live." "${TEMPLATE_STORAGE:-}")" || return 1
-  CONTAINER_STORAGE="$(pve_pick_storage "rootdir" "Container Storage" "Select where the container root filesystem should live." "${CONTAINER_STORAGE:-}")" || return 1
+  CT_TEMPLATE_STORAGE="$(pve_pick_storage "vztmpl" "TEMPLATE STORAGE" "Select Template Storage" "${CT_TEMPLATE_STORAGE:-}")" || return 1
+  CT_CONTAINER_STORAGE="$(pve_pick_storage "rootdir" "CONTAINER STORAGE" "Select Container Storage" "${CT_CONTAINER_STORAGE:-}")" || return 1
 }
 
 lxc_summary_text() {
   cat <<EOF
 App:            ${APP_NAME}
 CTID:           ${CTID}
-Hostname:       ${HOSTNAME}
+Hostname:       ${CT_HOSTNAME}
 OS:             ${OS_ID} ${OS_VERSION}
-CPU:            ${CPU} core(s)
-Memory:         ${RAM} MiB
-Disk:           ${DISK} GiB
-Bridge:         ${BRIDGE}
-IPv4:           $( [[ "${USE_DHCP}" == "yes" ]] && printf '%s' "DHCP" || printf '%s via %s' "${IPV4_CIDR}" "${GATEWAY}" )
-IPv6:           ${IPV6_METHOD}
-Unprivileged:   ${UNPRIVILEGED}
-On boot:        ${ONBOOT}
-Template store: ${TEMPLATE_STORAGE}
-Rootfs store:   ${CONTAINER_STORAGE}
+CPU:            ${CT_CORES} core(s)
+Memory:         ${CT_MEMORY} MiB
+Disk:           ${CT_DISK} GiB
+Bridge:         ${CT_BRIDGE}
+IPv4:           $( [[ "${CT_NETWORK_MODE}" == "dhcp" ]] && printf '%s' "DHCP" || printf '%s via %s' "${CT_IPV4_CIDR}" "${CT_GATEWAY}" )
+IPv6:           ${CT_IPV6_METHOD}
+Unprivileged:   ${CT_UNPRIVILEGED}
+On boot:        ${CT_ONBOOT}
+Template store: ${CT_TEMPLATE_STORAGE}
+Rootfs store:   ${CT_CONTAINER_STORAGE}
 EOF
 }
 
@@ -133,7 +142,7 @@ lxc_confirm_settings() {
   summary="$(lxc_summary_text)"
 
   if command_exists whiptail; then
-    whiptail --backtitle "HomeLab Proxmox Scripts" --title "Confirm Container Settings" --yesno "$summary" 20 78
+    whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "CONFIRM SETTINGS" --yesno "$summary" 20 78
     return $?
   fi
 
@@ -147,19 +156,19 @@ lxc_create_container() {
   local net0
 
   ensure_guest_id_available "$CTID"
-  template_ref="$(pve_ensure_lxc_template "$TEMPLATE_STORAGE" "$OS_ID" "$OS_VERSION")"
-  net0="$(build_lxc_net0 "$BRIDGE" "$USE_DHCP" "$IPV4_CIDR" "$GATEWAY")"
+  template_ref="$(pve_ensure_lxc_template "$CT_TEMPLATE_STORAGE" "$OS_ID" "$OS_VERSION")"
+  net0="$(build_lxc_net0 "$CT_BRIDGE" "$CT_NETWORK_MODE" "$CT_IPV4_CIDR" "$CT_GATEWAY")"
 
   msg_info "Creating CT ${CTID}"
   pct create "$CTID" "$template_ref" \
     --arch "$(dpkg --print-architecture)" \
-    --hostname "$HOSTNAME" \
-    --cores "$CPU" \
-    --memory "$RAM" \
-    --rootfs "${CONTAINER_STORAGE}:${DISK}" \
+    --hostname "$CT_HOSTNAME" \
+    --cores "$CT_CORES" \
+    --memory "$CT_MEMORY" \
+    --rootfs "${CT_CONTAINER_STORAGE}:${CT_DISK}" \
     --net0 "$net0" \
-    --unprivileged "$UNPRIVILEGED" \
-    --onboot "$ONBOOT" \
+    --unprivileged "$CT_UNPRIVILEGED" \
+    --onboot "$CT_ONBOOT" \
     --features nesting=1 \
     --tags "homelab;${app_slug}" >/dev/null
   msg_ok "Created CT ${CTID}"
@@ -199,7 +208,7 @@ lxc_run_app_action() {
     APP_ACTION="$action" \
     APP_NAME="$APP_NAME" \
     APP_SLUG="$app_slug" \
-    IPV6_METHOD="${IPV6_METHOD:-auto}" \
+    IPV6_METHOD="${CT_IPV6_METHOD:-auto}" \
     bash -lc "export FUNCTIONS_FILE_PATH=\"\$(cat /opt/homelab-proxmox/lib/container-functions.sh)\"; bash /opt/homelab-proxmox/install/${app_slug}-install.sh"
 }
 
