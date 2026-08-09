@@ -24,6 +24,7 @@ DEFAULT_TEMPLATE="ubuntu-24.04-standard_24.04-2_amd64.tar.zst"
 DEFAULT_START_ON_BOOT=1
 DEFAULT_UNPRIVILEGED=1
 DEFAULT_SEMAPHORE_PORT=3000
+DEFAULT_UBUNTU_VERSION="24.04"
 
 CTID=""
 HOSTNAME="$DEFAULT_HOSTNAME"
@@ -39,6 +40,7 @@ GATEWAY=""
 TEMPLATE_STORAGE="$DEFAULT_TEMPLATE_STORAGE"
 CONTAINER_STORAGE="$DEFAULT_CONTAINER_STORAGE"
 TEMPLATE_NAME="$DEFAULT_TEMPLATE"
+UBUNTU_VERSION="$DEFAULT_UBUNTU_VERSION"
 START_ON_BOOT="$DEFAULT_START_ON_BOOT"
 UNPRIVILEGED="$DEFAULT_UNPRIVILEGED"
 ROOT_PASSWORD=""
@@ -127,6 +129,7 @@ reset_defaults() {
   TEMPLATE_STORAGE="$DEFAULT_TEMPLATE_STORAGE"
   CONTAINER_STORAGE="$DEFAULT_CONTAINER_STORAGE"
   TEMPLATE_NAME="$DEFAULT_TEMPLATE"
+  UBUNTU_VERSION="$DEFAULT_UBUNTU_VERSION"
   START_ON_BOOT="$DEFAULT_START_ON_BOOT"
   UNPRIVILEGED="$DEFAULT_UNPRIVILEGED"
   ROOT_PASSWORD=""
@@ -158,6 +161,18 @@ show_intro_menu() {
       exit 0
       ;;
   esac
+}
+
+select_ubuntu_version() {
+  local selected_version
+
+  selected_version=$(ui_radiolist "UBUNTU VERSION" "\nChoose the Ubuntu template version:" 14 58 3 \
+    "24.04" "Ubuntu 24.04 LTS" $([[ "$UBUNTU_VERSION" == "24.04" ]] && printf 'ON' || printf 'OFF') \
+    "22.04" "Ubuntu 22.04 LTS" $([[ "$UBUNTU_VERSION" == "22.04" ]] && printf 'ON' || printf 'OFF') \
+    "25.04" "Ubuntu 25.04" $([[ "$UBUNTU_VERSION" == "25.04" ]] && printf 'ON' || printf 'OFF')) || exit 0
+
+  UBUNTU_VERSION="$selected_version"
+  TEMPLATE_NAME="ubuntu-${UBUNTU_VERSION}-standard_${UBUNTU_VERSION}-1_amd64.tar.zst"
 }
 
 run_default_wizard() {
@@ -586,6 +601,27 @@ ensure_template() {
   pveam download "$TEMPLATE_STORAGE" "$TEMPLATE_NAME"
 }
 
+install_semaphore_binary() {
+  local arch
+  local asset_url
+  local temp_deb
+
+  arch=$(dpkg --print-architecture)
+  asset_url=$(curl -fsSL https://api.github.com/repos/semaphoreui/semaphore/releases/latest \
+    | grep -oE 'https://[^"[:space:]]+\.deb' \
+    | grep -E "linux_${arch}\.deb|_${arch}\.deb" \
+    | head -n1)
+
+  [[ -n "$asset_url" ]] || fail "Could not find a Semaphore .deb for architecture '$arch'"
+
+  temp_deb=$(mktemp --suffix=.deb)
+  log_info "Downloading Semaphore package"
+  curl -fL "$asset_url" -o "$temp_deb"
+  log_info "Installing Semaphore package"
+  dpkg -i "$temp_deb" || apt-get -f install -y
+  rm -f "$temp_deb"
+}
+
 finalize_generated_values() {
   if [[ -z "$SEMAPHORE_ADMIN_PASSWORD" ]]; then
     SEMAPHORE_ADMIN_PASSWORD=$(generate_password)
@@ -656,11 +692,8 @@ install_semaphore_stack() {
 set -Eeuo pipefail
 apt-get update
 apt-get install -y curl gpg sqlite3 ansible
-mkdir -p /etc/apt/keyrings
-curl -fsSL https://apt.semaphoreui.com/semaphoreui.key | gpg --dearmor -o /etc/apt/keyrings/semaphoreui.gpg
-echo 'deb [signed-by=/etc/apt/keyrings/semaphoreui.gpg] https://apt.semaphoreui.com stable main' >/etc/apt/sources.list.d/semaphoreui.list
-apt-get update
-apt-get install -y semaphore
+$(declare -f install_semaphore_binary)
+install_semaphore_binary
 install -d -m 0755 /opt/semaphore/tmp
 COOKIE_HASH=\$(openssl rand -base64 32)
 COOKIE_ENCRYPTION=\$(openssl rand -base64 32)
@@ -752,6 +785,7 @@ main() {
   while true; do
     reset_defaults
     show_intro_menu
+    select_ubuntu_version
 
     if [[ "$INSTALL_MODE" == "default" ]]; then
       run_default_wizard
