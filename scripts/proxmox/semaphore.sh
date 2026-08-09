@@ -594,16 +594,15 @@ resolve_template_name() {
   local template_prefix
   local available_template
 
+  pveam update >/dev/null 2>&1 || true
   template_prefix="ubuntu-${UBUNTU_VERSION}-standard_${UBUNTU_VERSION}-"
-  available_template=$(pveam available 2>/dev/null \
+  available_template=$(pveam available --section system 2>/dev/null \
     | awk -v prefix="$template_prefix" '$2 ~ "^" prefix && $2 ~ /_amd64\.tar\.zst$/ {print $2}' \
     | sort -V \
     | tail -n1)
 
   if [[ -z "$available_template" ]]; then
-    log_info "Refreshing Proxmox template index"
-    pveam update >/dev/null 2>&1 || true
-    available_template=$(pveam available 2>/dev/null \
+    available_template=$(pveam available --section system 2>/dev/null \
       | awk -v prefix="$template_prefix" '$2 ~ "^" prefix && $2 ~ /_amd64\.tar\.zst$/ {print $2}' \
       | sort -V \
       | tail -n1)
@@ -622,7 +621,12 @@ ensure_template() {
   fi
 
   log_info "Downloading template $TEMPLATE_NAME to storage $TEMPLATE_STORAGE"
-  pveam download "$TEMPLATE_STORAGE" "$TEMPLATE_NAME"
+  if ! pveam download "$TEMPLATE_STORAGE" "$TEMPLATE_NAME"; then
+    log_info "Refreshing Proxmox template index and retrying"
+    pveam update >/dev/null 2>&1 || true
+    resolve_template_name
+    pveam download "$TEMPLATE_STORAGE" "$TEMPLATE_NAME"
+  fi
 }
 
 install_semaphore_binary() {
