@@ -732,7 +732,7 @@ install -d -m 0755 /opt/semaphore/tmp
 COOKIE_HASH=\$(openssl rand -base64 32)
 COOKIE_ENCRYPTION=\$(openssl rand -base64 32)
 ACCESS_KEY_ENCRYPTION=\$(openssl rand -base64 32)
-cat >/opt/semaphore/config.json <<'EOF'
+   cat >/opt/semaphore/config.json <<EOF
 {
   \"sqlite\": {
     \"host\": \"/opt/semaphore/database.sqlite\"
