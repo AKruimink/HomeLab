@@ -20,7 +20,6 @@ DEFAULT_DISK=8
 DEFAULT_BRIDGE="vmbr0"
 DEFAULT_TEMPLATE_STORAGE="local"
 DEFAULT_CONTAINER_STORAGE="local-lvm"
-DEFAULT_TEMPLATE="ubuntu-24.04-standard_24.04-2_amd64.tar.zst"
 DEFAULT_START_ON_BOOT=1
 DEFAULT_UNPRIVILEGED=1
 DEFAULT_SEMAPHORE_PORT=3000
@@ -39,7 +38,7 @@ IP_ADDRESS=""
 GATEWAY=""
 TEMPLATE_STORAGE="$DEFAULT_TEMPLATE_STORAGE"
 CONTAINER_STORAGE="$DEFAULT_CONTAINER_STORAGE"
-TEMPLATE_NAME="$DEFAULT_TEMPLATE"
+TEMPLATE_NAME=""
 UBUNTU_VERSION="$DEFAULT_UBUNTU_VERSION"
 START_ON_BOOT="$DEFAULT_START_ON_BOOT"
 UNPRIVILEGED="$DEFAULT_UNPRIVILEGED"
@@ -128,7 +127,7 @@ reset_defaults() {
   GATEWAY=""
   TEMPLATE_STORAGE="$DEFAULT_TEMPLATE_STORAGE"
   CONTAINER_STORAGE="$DEFAULT_CONTAINER_STORAGE"
-  TEMPLATE_NAME="$DEFAULT_TEMPLATE"
+  TEMPLATE_NAME=""
   UBUNTU_VERSION="$DEFAULT_UBUNTU_VERSION"
   START_ON_BOOT="$DEFAULT_START_ON_BOOT"
   UNPRIVILEGED="$DEFAULT_UNPRIVILEGED"
@@ -172,7 +171,7 @@ select_ubuntu_version() {
     "25.04" "Ubuntu 25.04" $([[ "$UBUNTU_VERSION" == "25.04" ]] && printf 'ON' || printf 'OFF')) || exit 0
 
   UBUNTU_VERSION="$selected_version"
-  TEMPLATE_NAME="ubuntu-${UBUNTU_VERSION}-standard_${UBUNTU_VERSION}-1_amd64.tar.zst"
+  TEMPLATE_NAME=""
 }
 
 run_default_wizard() {
@@ -591,7 +590,32 @@ template_exists() {
   pveam list "$TEMPLATE_STORAGE" | awk '{print $2}' | grep -Fx "$TEMPLATE_NAME" >/dev/null 2>&1
 }
 
+resolve_template_name() {
+  local template_prefix
+  local available_template
+
+  template_prefix="ubuntu-${UBUNTU_VERSION}-standard_${UBUNTU_VERSION}-"
+  available_template=$(pveam available 2>/dev/null \
+    | awk -v prefix="$template_prefix" '$2 ~ "^" prefix && $2 ~ /_amd64\.tar\.zst$/ {print $2}' \
+    | sort -V \
+    | tail -n1)
+
+  if [[ -z "$available_template" ]]; then
+    log_info "Refreshing Proxmox template index"
+    pveam update >/dev/null 2>&1 || true
+    available_template=$(pveam available 2>/dev/null \
+      | awk -v prefix="$template_prefix" '$2 ~ "^" prefix && $2 ~ /_amd64\.tar\.zst$/ {print $2}' \
+      | sort -V \
+      | tail -n1)
+  fi
+
+  [[ -n "$available_template" ]] || fail "No Ubuntu ${UBUNTU_VERSION} template is available. Run 'pveam update' on the Proxmox host and try again."
+  TEMPLATE_NAME="$available_template"
+}
+
 ensure_template() {
+  resolve_template_name
+
   if template_exists; then
     log_info "Using cached template $TEMPLATE_NAME from storage $TEMPLATE_STORAGE"
     return

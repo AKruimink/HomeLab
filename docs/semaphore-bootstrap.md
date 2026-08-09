@@ -49,7 +49,7 @@ Expected defaults:
 - bridge `vmbr0`
 - DHCP networking
 - unprivileged container
-- Ubuntu 24.04 template
+- Ubuntu 24.04 template, resolved dynamically to the latest matching build available on the Proxmox host
 - sensible CPU, RAM, swap, and disk defaults
 
 ### Advanced mode
