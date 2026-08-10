@@ -124,6 +124,14 @@ validate_hostname() {
   [[ "$1" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$ ]]
 }
 
+validate_nonempty() {
+  [[ -n "${1:-}" ]]
+}
+
+validate_email() {
+  [[ "$1" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]
+}
+
 validate_ipv4() {
   local ip="$1"
   local octet
@@ -148,6 +156,43 @@ validate_ipv4_cidr() {
 generate_secret() {
   local length="${1:-24}"
   openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c "$length"
+}
+
+run_with_progress() {
+  local message="$1"
+  shift
+  local log_file
+  local pid
+  local exit_code
+  local dots=0
+  local had_errexit=0
+
+  log_file="$(mktemp)"
+  printf '%b%s%b' "${INFO}${YW}" "$message" "${CL}" >&2
+  "$@" >"$log_file" 2>&1 &
+  pid=$!
+
+  while kill -0 "$pid" >/dev/null 2>&1; do
+    dots=$(((dots + 1) % 4))
+    printf '\r%b%s%b' "${INFO}${YW}" "${message}$(printf '%.0s.' $(seq 1 "$dots"))" "${CL}" >&2
+    sleep 0.5
+  done
+
+  [[ "$-" == *e* ]] && had_errexit=1
+  set +e
+  wait "$pid"
+  exit_code=$?
+  [[ "$had_errexit" -eq 1 ]] && set -e
+
+  printf '\r\033[K' >&2
+
+  if [[ "$exit_code" -ne 0 ]]; then
+    [[ -s "$log_file" ]] && cat "$log_file" >&2
+    rm -f "$log_file"
+    die "${message} failed."
+  fi
+
+  rm -f "$log_file"
 }
 
 show_dialog_message() {

@@ -34,9 +34,8 @@ lxc_apply_default_settings() {
 
 lxc_prompt_advanced_settings() {
   local step=1
-  local max_step=14
+  local max_step=16
   local selection
-  local selected_flags
 
   tput smcup 2>/dev/null || true
   trap 'tput rmcup 2>/dev/null || true' RETURN
@@ -183,14 +182,9 @@ lxc_prompt_advanced_settings() {
       done
       ;;
     11)
-      selected_flags=""
-      [[ "${CT_UNPRIVILEGED:-1}" == "1" ]] && selected_flags+="unprivileged "
-      [[ "${CT_ONBOOT:-1}" == "1" ]] && selected_flags+="onboot "
-      [[ "${CT_IPV6_METHOD:-auto}" != "disable" ]] && selected_flags+="ipv6 "
-      if ! selection="$(prompt_checklist "CONTAINER OPTIONS" "$(lxc_wizard_text 11 "$max_step" $'Select container options.\nUse Space to toggle and Enter to confirm.')" "$selected_flags" \
+      if ! selection="$(prompt_radiolist "CONTAINER TYPE" "$(lxc_wizard_text 11 "$max_step" "Choose the container type")" "$([[ "${CT_UNPRIVILEGED:-1}" == "1" ]] && printf '%s' "unprivileged" || printf '%s' "privileged")" \
         "unprivileged" "Recommended for most applications" \
-        "onboot" "Start the container at boot" \
-        "ipv6" "Keep IPv6 enabled")"; then
+        "privileged" "Use only when the application requires it")"; then
         if [[ "$CT_NETWORK_MODE" == "dhcp" ]]; then
           step=8
         else
@@ -198,36 +192,55 @@ lxc_prompt_advanced_settings() {
         fi
         continue
       fi
-      CT_UNPRIVILEGED="0"
-      CT_ONBOOT="0"
-      CT_IPV6_METHOD="disable"
-      while IFS= read -r selected_flag; do
-        case "$selected_flag" in
-        unprivileged) CT_UNPRIVILEGED="1" ;;
-        onboot) CT_ONBOOT="1" ;;
-        ipv6) CT_IPV6_METHOD="auto" ;;
-        esac
-      done <<<"$selection"
+      if [[ "$selection" == "unprivileged" ]]; then
+        CT_UNPRIVILEGED="1"
+      else
+        CT_UNPRIVILEGED="0"
+      fi
       ((step++))
       ;;
     12)
-      if ! selection="$(prompt_input "TAGS" "$(lxc_wizard_text 12 "$max_step" "Optional tags (comma separated)")" "${CT_TAGS:-}")"; then
+      if ! selection="$(prompt_radiolist "START AT BOOT" "$(lxc_wizard_text 12 "$max_step" "Should this container start automatically at boot?")" "$([[ "${CT_ONBOOT:-1}" == "1" ]] && printf '%s' "yes" || printf '%s' "no")" \
+        "yes" "Start this container at boot" \
+        "no" "Do not start this container at boot")"; then
+        ((step--))
+        continue
+      fi
+      if [[ "$selection" == "yes" ]]; then
+        CT_ONBOOT="1"
+      else
+        CT_ONBOOT="0"
+      fi
+      ((step++))
+      ;;
+    13)
+      if ! selection="$(prompt_radiolist "IPV6" "$(lxc_wizard_text 13 "$max_step" "Should IPv6 stay enabled in the container?")" "$([[ "${CT_IPV6_METHOD:-auto}" == "auto" ]] && printf '%s' "auto" || printf '%s' "disable")" \
+        "auto" "Keep IPv6 enabled" \
+        "disable" "Disable IPv6")"; then
+        ((step--))
+        continue
+      fi
+      CT_IPV6_METHOD="$selection"
+      ((step++))
+      ;;
+    14)
+      if ! selection="$(prompt_input "TAGS" "$(lxc_wizard_text 14 "$max_step" "Optional tags (comma separated)")" "${CT_TAGS:-}")"; then
         ((step--))
         continue
       fi
       CT_TAGS="$selection"
       ((step++))
       ;;
-    13)
-      if ! selection="$(pve_pick_storage "vztmpl" "TEMPLATE STORAGE" "$(lxc_wizard_text 13 "$max_step" "Select template storage")" "${CT_TEMPLATE_STORAGE:-}")"; then
+    15)
+      if ! selection="$(pve_pick_storage "vztmpl" "TEMPLATE STORAGE" "$(lxc_wizard_text 15 "$max_step" "Select template storage")" "${CT_TEMPLATE_STORAGE:-}")"; then
         ((step--))
         continue
       fi
       CT_TEMPLATE_STORAGE="$selection"
       ((step++))
       ;;
-    14)
-      if ! selection="$(pve_pick_storage "rootdir" "CONTAINER STORAGE" "$(lxc_wizard_text 14 "$max_step" "Select container storage")" "${CT_CONTAINER_STORAGE:-}")"; then
+    16)
+      if ! selection="$(pve_pick_storage "rootdir" "CONTAINER STORAGE" "$(lxc_wizard_text 16 "$max_step" "Select container storage")" "${CT_CONTAINER_STORAGE:-}")"; then
         ((step--))
         continue
       fi
@@ -303,8 +316,7 @@ lxc_create_container() {
     tags_option=(--tags "$CT_TAGS")
   fi
 
-  msg_info "Creating CT ${CTID}"
-  pct create "$CTID" "$template_ref" \
+  run_with_progress "Creating CT ${CTID}" pct create "$CTID" "$template_ref" \
     --arch "$(dpkg --print-architecture)" \
     --hostname "$CT_HOSTNAME" \
     --cores "$CT_CORES" \
@@ -314,11 +326,10 @@ lxc_create_container() {
     --unprivileged "$CT_UNPRIVILEGED" \
     --onboot "$CT_ONBOOT" \
     --features nesting=1 \
-    "${tags_option[@]}" >/dev/null
+    "${tags_option[@]}"
   msg_ok "Created CT ${CTID}"
 
-  msg_info "Starting CT ${CTID}"
-  pct start "$CTID" >/dev/null
+  run_with_progress "Starting CT ${CTID}" pct start "$CTID"
   msg_ok "Started CT ${CTID}"
 
   msg_info "Waiting for CT ${CTID} network"
@@ -346,12 +357,17 @@ lxc_run_app_action() {
   local ctid="$1"
   local app_slug="$2"
   local action="$3"
+  local -a env_args=()
 
   ensure_pct_running "$ctid"
+  if declare -p APP_INSTALL_ENV >/dev/null 2>&1; then
+    env_args=("${APP_INSTALL_ENV[@]}")
+  fi
   pct exec "$ctid" -- env \
     APP_ACTION="$action" \
     APP_NAME="$APP_NAME" \
     APP_SLUG="$app_slug" \
     IPV6_METHOD="${CT_IPV6_METHOD:-auto}" \
+    "${env_args[@]}" \
     bash -lc "export FUNCTIONS_FILE_PATH=\"\$(cat /opt/homelab-proxmox/lib/container-functions.sh)\"; bash /opt/homelab-proxmox/install/${app_slug}-install.sh"
 }

@@ -107,16 +107,14 @@ pve_ensure_lxc_template() {
 
   template_prefix="$(pve_lxc_template_prefix "$os_id" "$os_version")"
 
-  msg_info "Refreshing LXC template catalog"
-  pveam update >/dev/null
+  run_with_progress "Refreshing LXC template catalog" pveam update
   msg_ok "Refreshed LXC template catalog"
 
   template_name="$(pveam available -section system | awk -v prefix="$template_prefix" '$2 ~ ("^" prefix) { print $2 }' | tail -n1)"
   [[ -n "$template_name" ]] || die "Unable to find an upstream LXC template matching '${template_prefix}'."
 
   if ! pveam list "$template_storage" | awk '{ print $2 }' | grep -qx "$template_name"; then
-    msg_info "Downloading template ${template_name} to ${template_storage}"
-    pveam download "$template_storage" "$template_name" >/dev/null
+    run_with_progress "Downloading template ${template_name} to ${template_storage}" pveam download "$template_storage" "$template_name"
     msg_ok "Downloaded template ${template_name}"
   fi
 

@@ -33,7 +33,46 @@ APP_NAME="Semaphore"
 APP_SLUG="semaphore"
 var_tags="${var_tags:-}"
 
+prompt_semaphore_admin_settings() {
+  local password_confirmation
+
+  while true; do
+    SEMAPHORE_ADMIN_LOGIN="$(prompt_input "SEMAPHORE LOGIN" "Set the initial Semaphore login name" "${SEMAPHORE_ADMIN_LOGIN:-admin}")" || return 1
+    validate_nonempty "$SEMAPHORE_ADMIN_LOGIN" && break
+    show_dialog_message "INVALID LOGIN" "The Semaphore login name cannot be empty."
+  done
+
+  while true; do
+    SEMAPHORE_ADMIN_NAME="$(prompt_input "SEMAPHORE DISPLAY NAME" "Set the initial Semaphore display name" "${SEMAPHORE_ADMIN_NAME:-Administrator}")" || return 1
+    validate_nonempty "$SEMAPHORE_ADMIN_NAME" && break
+    show_dialog_message "INVALID DISPLAY NAME" "The Semaphore display name cannot be empty."
+  done
+
+  while true; do
+    SEMAPHORE_ADMIN_EMAIL="$(prompt_input "SEMAPHORE EMAIL" "Set the initial Semaphore email address" "${SEMAPHORE_ADMIN_EMAIL:-admin@homelab.local}")" || return 1
+    validate_email "$SEMAPHORE_ADMIN_EMAIL" && break
+    show_dialog_message "INVALID EMAIL" "Enter a valid email address for the initial Semaphore admin."
+  done
+
+  while true; do
+    SEMAPHORE_ADMIN_PASSWORD="$(prompt_password "SEMAPHORE PASSWORD" "Set the initial Semaphore admin password.\n\nLeave blank to generate a random password automatically.")" || return 1
+    if [[ -z "${SEMAPHORE_ADMIN_PASSWORD}" ]]; then
+      SEMAPHORE_ADMIN_PASSWORD="$(generate_secret 16)"
+      SEMAPHORE_ADMIN_PASSWORD_GENERATED="1"
+      break
+    fi
+
+    password_confirmation="$(prompt_password "CONFIRM PASSWORD" "Re-enter the initial Semaphore admin password")" || return 1
+    if [[ "$SEMAPHORE_ADMIN_PASSWORD" == "$password_confirmation" ]]; then
+      SEMAPHORE_ADMIN_PASSWORD_GENERATED="0"
+      break
+    fi
+    show_dialog_message "PASSWORD MISMATCH" "The passwords did not match. Please try again."
+  done
+}
+
 create_flow() {
+  local admin_credentials
   local mode
   local ip_address
 
@@ -49,6 +88,13 @@ create_flow() {
   if [[ "$mode" == "advanced" ]]; then
     lxc_prompt_advanced_settings || exit 0
   fi
+  prompt_semaphore_admin_settings || exit 0
+  APP_INSTALL_ENV=(
+    "SEMAPHORE_ADMIN_LOGIN=${SEMAPHORE_ADMIN_LOGIN}"
+    "SEMAPHORE_ADMIN_NAME=${SEMAPHORE_ADMIN_NAME}"
+    "SEMAPHORE_ADMIN_EMAIL=${SEMAPHORE_ADMIN_EMAIL}"
+    "SEMAPHORE_ADMIN_PASSWORD=${SEMAPHORE_ADMIN_PASSWORD}"
+  )
 
   lxc_confirm_settings || exit 0
   lxc_create_container "$APP_SLUG"
@@ -56,11 +102,18 @@ create_flow() {
   lxc_run_app_action "$CTID" "$APP_SLUG" "install"
 
   ip_address="$(pct_primary_ip "$CTID")"
+  admin_credentials="$(pct exec "$CTID" -- cat /root/semaphore.creds 2>/dev/null || true)"
   msg_ok "Completed successfully"
+  echo ""
   echo -e "${INFO}${YW}Access ${APP_NAME} at:${CL}"
   echo -e "${TAB3}${BGN}http://${ip_address}:3000${CL}"
+  if [[ -n "$admin_credentials" ]]; then
+    echo -e "${INFO}${YW}Initial admin credentials:${CL}"
+    echo "$admin_credentials"
+  fi
   echo -e "${INFO}${YW}Update inside the container:${CL}"
   echo -e "${TAB3}${BL}semaphore-update${CL}"
+  echo ""
 }
 
 main() {

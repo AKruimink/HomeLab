@@ -32,11 +32,10 @@ network_check() {
 }
 
 update_os() {
-  msg_info "Updating package metadata"
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update >/dev/null
-  apt-get -y upgrade >/dev/null
-  apt-get install -y curl ca-certificates >/dev/null
+  run_with_progress "Updating package metadata" apt-get update
+  run_with_progress "Upgrading container packages" apt-get -y upgrade
+  run_with_progress "Installing required base packages" apt-get install -y curl ca-certificates
   msg_ok "Container OS is up to date"
 }
 
@@ -66,7 +65,7 @@ fetch_github_release_asset() {
   [[ -n "$asset_url" ]] || die "Unable to locate a release asset matching ${asset_pattern}."
 
   asset_file="/tmp/$(basename "$asset_url")"
-  curl -fsSL "$asset_url" -o "$asset_file"
+  run_with_progress "Downloading release asset $(basename "$asset_url")" curl -fsSL "$asset_url" -o "$asset_file"
   printf '%s' "$asset_file"
 }
 
@@ -76,7 +75,7 @@ install_github_deb_release() {
   local asset_file
 
   asset_file="$(fetch_github_release_asset "$repo" "$asset_pattern")"
-  apt-get install -y "$asset_file" >/dev/null
+  run_with_progress "Installing package $(basename "$asset_file")" apt-get install -y "$asset_file"
   rm -f "$asset_file"
 }
 
@@ -131,6 +130,8 @@ EOF
 customize() {
   cat <<EOF >/etc/profile.d/homelab-proxmox.sh
 #!/usr/bin/env bash
+[[ "\$-" == *i* ]] || return 0
+echo ""
 echo "HomeLab Proxmox Scripts: ${APP_NAME}"
 echo "Update command: ${APP_UPDATE_HINT:-N/A}"
 EOF

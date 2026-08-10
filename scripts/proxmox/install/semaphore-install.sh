@@ -8,6 +8,10 @@ icons
 
 APP_NAME="${APP_NAME:-Semaphore}"
 APP_SLUG="${APP_SLUG:-semaphore}"
+SEMAPHORE_ADMIN_LOGIN="${SEMAPHORE_ADMIN_LOGIN:-admin}"
+SEMAPHORE_ADMIN_NAME="${SEMAPHORE_ADMIN_NAME:-Administrator}"
+SEMAPHORE_ADMIN_EMAIL="${SEMAPHORE_ADMIN_EMAIL:-admin@homelab.local}"
+SEMAPHORE_ADMIN_PASSWORD="${SEMAPHORE_ADMIN_PASSWORD:-}"
 
 SEMAPHORE_HOME="/opt/semaphore"
 SEMAPHORE_CONFIG="${SEMAPHORE_HOME}/config.json"
@@ -16,8 +20,7 @@ SEMAPHORE_SERVICE="/etc/systemd/system/semaphore.service"
 SEMAPHORE_CREDS="/root/semaphore.creds"
 
 install_dependencies() {
-  msg_info "Installing Semaphore dependencies"
-  apt-get install -y git ansible >/dev/null
+  run_with_progress "Installing Semaphore dependencies" apt-get install -y git ansible
   msg_ok "Installed Semaphore dependencies"
 }
 
@@ -85,16 +88,21 @@ create_admin_user_if_needed() {
     return 0
   fi
 
-  admin_password="$(generate_secret 16)"
+  admin_password="${SEMAPHORE_ADMIN_PASSWORD:-$(generate_secret 16)}"
   msg_info "Creating initial Semaphore admin user"
-  semaphore user add \
+  run_with_progress "Creating initial Semaphore admin user" semaphore user add \
     --admin \
-    --login admin \
-    --email admin@homelab.local \
-    --name Administrator \
+    --login "${SEMAPHORE_ADMIN_LOGIN}" \
+    --email "${SEMAPHORE_ADMIN_EMAIL}" \
+    --name "${SEMAPHORE_ADMIN_NAME}" \
     --password "${admin_password}" \
-    --config "${SEMAPHORE_CONFIG}" >/dev/null
-  printf 'Username: admin\nPassword: %s\n' "${admin_password}" >"${SEMAPHORE_CREDS}"
+    --config "${SEMAPHORE_CONFIG}"
+  cat <<EOF >"${SEMAPHORE_CREDS}"
+Username: ${SEMAPHORE_ADMIN_LOGIN}
+Display Name: ${SEMAPHORE_ADMIN_NAME}
+Email: ${SEMAPHORE_ADMIN_EMAIL}
+Password: ${admin_password}
+EOF
   chmod 600 "${SEMAPHORE_CREDS}"
   msg_ok "Created initial Semaphore admin user"
 }
@@ -117,8 +125,7 @@ RestartSec=10s
 [Install]
 WantedBy=multi-user.target
 EOF
-  systemctl daemon-reload
-  systemctl enable -q --now semaphore
+  run_with_progress "Reloading systemd and starting Semaphore" bash -lc 'systemctl daemon-reload && systemctl enable -q --now semaphore'
   msg_ok "Created Semaphore systemd service"
 }
 
@@ -154,7 +161,7 @@ run_update() {
 
   if systemctl is-active --quiet semaphore; then
     msg_info "Stopping Semaphore"
-    systemctl stop semaphore
+    run_with_progress "Stopping Semaphore" systemctl stop semaphore
     msg_ok "Stopped Semaphore"
   fi
 
