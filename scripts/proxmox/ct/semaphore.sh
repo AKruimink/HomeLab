@@ -39,7 +39,13 @@ create_flow() {
 
   lxc_apply_default_settings "semaphore" "2" "2048" "4" "ubuntu" "24.04"
 
-  mode="$(prompt_default_or_advanced)" || exit 0
+  mode="$(prompt_install_mode "$APP_NAME")" || exit 0
+  if [[ "$mode" == "exit" ]]; then
+    exit 0
+  fi
+  if [[ "$mode" == "default" ]]; then
+    msg_info "Using default settings for ${APP_NAME}"
+  fi
   if [[ "$mode" == "advanced" ]]; then
     lxc_prompt_advanced_settings || exit 0
   fi

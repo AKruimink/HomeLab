@@ -74,6 +74,22 @@ has_interactive_tty() {
   [[ -r /dev/tty && -w /dev/tty ]]
 }
 
+run_whiptail_capture() {
+  if has_interactive_tty; then
+    "$@" 3>&1 1>/dev/tty 2>&3 </dev/tty
+  else
+    "$@" 3>&1 1>&2 2>&3
+  fi
+}
+
+run_whiptail_confirm() {
+  if has_interactive_tty; then
+    "$@" </dev/tty >/dev/tty 2>/dev/tty
+  else
+    "$@"
+  fi
+}
+
 require_root() {
   [[ "$(id -u)" -eq 0 ]] || die "Please run this script as root."
 }
@@ -108,9 +124,42 @@ validate_hostname() {
   [[ "$1" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$ ]]
 }
 
+validate_ipv4() {
+  local ip="$1"
+  local octet
+
+  [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+  IFS='.' read -r -a octets <<<"$ip"
+  for octet in "${octets[@]}"; do
+    ((octet >= 0 && octet <= 255)) || return 1
+  done
+}
+
+validate_ipv4_cidr() {
+  local cidr="$1"
+  local address="${cidr%/*}"
+  local prefix="${cidr#*/}"
+
+  [[ "$cidr" == */* ]] || return 1
+  validate_ipv4 "$address" || return 1
+  [[ "$prefix" =~ ^[0-9]{1,2}$|^3[0-2]$ ]] || return 1
+}
+
 generate_secret() {
   local length="${1:-24}"
   openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c "$length"
+}
+
+show_dialog_message() {
+  local title="$1"
+  local message="$2"
+
+  if command_exists whiptail; then
+    run_whiptail_confirm whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --msgbox "$message" 12 72
+    return 0
+  fi
+
+  msg_warn "$message"
 }
 
 prompt_yes_no() {
@@ -120,17 +169,10 @@ prompt_yes_no() {
 
   if command_exists whiptail; then
     local yes_args=()
-    local no_args=()
     if [[ "$default" == "no" ]]; then
       yes_args=(--defaultno)
     fi
-    if has_interactive_tty; then
-      if whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" "${yes_args[@]}" --yesno "$question" 12 72 </dev/tty >/dev/tty 2>/dev/tty; then
-        return 0
-      fi
-      return 1
-    fi
-    if whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" "${yes_args[@]}" --yesno "$question" 12 72; then
+    if run_whiptail_confirm whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" "${yes_args[@]}" --yesno "$question" 12 72; then
       return 0
     fi
     return 1
@@ -150,11 +192,7 @@ prompt_input() {
   local result
 
   if command_exists whiptail; then
-    if has_interactive_tty; then
-      result=$(whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --inputbox "$prompt" 12 72 "$default_value" 3>&1 1>/dev/tty 2>&3 </dev/tty) || return 1
-    else
-      result=$(whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --inputbox "$prompt" 12 72 "$default_value" 3>&1 1>&2 2>&3) || return 1
-    fi
+    result=$(run_whiptail_capture whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --inputbox "$prompt" 12 72 "$default_value") || return 1
     printf '%s' "$result"
     return 0
   fi
@@ -169,11 +207,7 @@ prompt_password() {
   local result
 
   if command_exists whiptail; then
-    if has_interactive_tty; then
-      result=$(whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --passwordbox "$prompt" 12 72 3>&1 1>/dev/tty 2>&3 </dev/tty) || return 1
-    else
-      result=$(whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --passwordbox "$prompt" 12 72 3>&1 1>&2 2>&3) || return 1
-    fi
+    result=$(run_whiptail_capture whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --passwordbox "$prompt" 12 72) || return 1
     printf '%s' "$result"
     return 0
   fi
@@ -190,11 +224,7 @@ prompt_menu() {
   local result
 
   if command_exists whiptail; then
-    if has_interactive_tty; then
-      result=$(whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --menu "$prompt" 20 78 10 "$@" 3>&1 1>/dev/tty 2>&3 </dev/tty) || return 1
-    else
-      result=$(whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --menu "$prompt" 20 78 10 "$@" 3>&1 1>&2 2>&3) || return 1
-    fi
+    result=$(run_whiptail_capture whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --menu "$prompt" 20 78 10 "$@") || return 1
     printf '%s' "$result"
     return 0
   fi
@@ -210,13 +240,100 @@ prompt_menu() {
   printf '%s' "$choice"
 }
 
+prompt_radiolist() {
+  local title="$1"
+  local prompt="$2"
+  local selected_tag="${3:-}"
+  shift 3
+  local result
+  local -a options=()
+  local tag
+  local description
+  local state
+
+  while (($# >= 2)); do
+    tag="$1"
+    description="$2"
+    shift 2
+    state="OFF"
+    if [[ "$tag" == "$selected_tag" ]]; then
+      state="ON"
+    fi
+    options+=("$tag" "$description" "$state")
+  done
+
+  if command_exists whiptail; then
+    result=$(run_whiptail_capture whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --radiolist "$prompt" 20 78 10 "${options[@]}") || return 1
+    printf '%s' "$result"
+    return 0
+  fi
+
+  prompt_menu "$title" "$prompt" "$@"
+}
+
+prompt_checklist() {
+  local title="$1"
+  local prompt="$2"
+  local selected_values="${3:-}"
+  shift 3
+  local result
+  local -a options=()
+  local tag
+  local description
+  local state
+
+  while (($# >= 2)); do
+    tag="$1"
+    description="$2"
+    shift 2
+    state="OFF"
+    if [[ " ${selected_values} " == *" ${tag} "* ]]; then
+      state="ON"
+    fi
+    options+=("$tag" "$description" "$state")
+  done
+
+  if command_exists whiptail; then
+    result=$(run_whiptail_capture whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --separate-output --checklist "$prompt" 20 78 10 "${options[@]}") || return 1
+    printf '%s' "$result"
+    return 0
+  fi
+
+  prompt_menu "$title" "$prompt" "$@"
+}
+
+prompt_install_mode() {
+  local app_name="$1"
+  local result
+
+  if command_exists whiptail; then
+    result=$(run_whiptail_capture whiptail \
+      --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" \
+      --title "HomeLab Options" \
+      --ok-button "Select" \
+      --cancel-button "Exit Script" \
+      --notags \
+      --menu "\nChoose how to deploy ${app_name}.\nUse TAB or Arrow keys to navigate, and ENTER to select.\n" \
+      18 64 6 \
+      "default" "Default Install" \
+      "advanced" "Advanced Install" \
+      "exit" "Exit") || return 1
+    printf '%s' "$result"
+    return 0
+  fi
+
+  prompt_menu "HomeLab Options" "Choose how to deploy ${app_name}." \
+    "default" "Default Install" \
+    "advanced" "Advanced Install" \
+    "exit" "Exit"
+}
+
 prompt_default_or_advanced() {
+  local app_name="${1:-this workload}"
   local selection
 
-  selection="$(prompt_menu "SETTINGS" "Choose setup mode" \
-    "default" "Use default settings" \
-    "advanced" "Change settings")" || return 1
-
+  selection="$(prompt_install_mode "$app_name")" || return 1
+  [[ "$selection" == "exit" ]] && return 1
   printf '%s' "$selection"
 }
 

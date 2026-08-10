@@ -16,31 +16,24 @@ pve_pick_storage() {
   local prompt="$3"
   local current_value="${4:-}"
   local -a storages=()
-  local -a menu_items=()
+  local -a storage_options=()
+  local default_storage=""
   local storage
 
   mapfile -t storages < <(pve_list_storages "$content_type")
   ((${#storages[@]} > 0)) || die "No storage found that supports '${content_type}'."
-
-  if [[ -n "$current_value" ]]; then
-    for storage in "${storages[@]}"; do
-      if [[ "$storage" == "$current_value" ]]; then
-        printf '%s' "$current_value"
-        return 0
-      fi
-    done
-  fi
 
   if ((${#storages[@]} == 1)); then
     printf '%s' "${storages[0]}"
     return 0
   fi
 
+  default_storage="${current_value:-${storages[0]}}"
   for storage in "${storages[@]}"; do
-    menu_items+=("$storage" "Storage supporting ${content_type}")
+    storage_options+=("$storage" "Storage supporting ${content_type}")
   done
 
-  prompt_menu "$title" "$prompt" "${menu_items[@]}"
+  prompt_radiolist "$title" "$prompt" "$default_storage" "${storage_options[@]}"
 }
 
 pve_first_storage() {
@@ -58,32 +51,27 @@ pve_first_bridge() {
 
 pve_pick_bridge() {
   local current_value="${1:-}"
+  local title="${2:-NETWORK BRIDGE}"
+  local prompt="${3:-Select the bridge for this container.}"
   local -a bridges=()
-  local -a menu_items=()
+  local -a bridge_options=()
+  local default_bridge=""
   local bridge
 
   mapfile -t bridges < <(pve_list_bridges)
   ((${#bridges[@]} > 0)) || die "No vmbr bridge interfaces were found on this Proxmox host."
-
-  if [[ -n "$current_value" ]]; then
-    for bridge in "${bridges[@]}"; do
-      if [[ "$bridge" == "$current_value" ]]; then
-        printf '%s' "$current_value"
-        return 0
-      fi
-    done
-  fi
 
   if ((${#bridges[@]} == 1)); then
     printf '%s' "${bridges[0]}"
     return 0
   fi
 
+  default_bridge="${current_value:-${bridges[0]}}"
   for bridge in "${bridges[@]}"; do
-    menu_items+=("$bridge" "Proxmox bridge")
+    bridge_options+=("$bridge" "Proxmox bridge")
   done
 
-  prompt_menu "Network Bridge" "Select the Proxmox bridge for this workload." "${menu_items[@]}"
+  prompt_radiolist "$title" "$prompt" "$default_bridge" "${bridge_options[@]}"
 }
 
 ensure_guest_id_available() {

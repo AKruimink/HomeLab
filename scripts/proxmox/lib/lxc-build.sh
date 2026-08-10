@@ -33,111 +33,246 @@ lxc_apply_default_settings() {
 }
 
 lxc_prompt_advanced_settings() {
+  local step=1
+  local max_step=14
   local selection
+  local selected_flags
 
-  while true; do
-    selection="$(prompt_input "CONTAINER ID" "Set Container ID" "${CTID:-$(next_lxc_id)}")" || return 1
-    validate_integer "$selection" && break
-    msg_warn "CTID must be a numeric value."
+  tput smcup 2>/dev/null || true
+  trap 'tput rmcup 2>/dev/null || true' RETURN
+
+  lxc_wizard_text() {
+    local current_step="$1"
+    local total_steps="$2"
+    local message="$3"
+    printf 'Step %s of %s\n\n%s' "$current_step" "$total_steps" "$message"
+  }
+
+  while ((step <= max_step)); do
+    case "$step" in
+    1)
+      while true; do
+        if ! selection="$(prompt_input "CONTAINER ID" "$(lxc_wizard_text 1 "$max_step" "Set Container ID")" "${CTID:-$(next_lxc_id)}")"; then
+          return 1
+        fi
+        if validate_integer "$selection"; then
+          CTID="$selection"
+          ((step++))
+          break
+        fi
+        show_dialog_message "INVALID CONTAINER ID" "Container ID must be a numeric value."
+      done
+      ;;
+    2)
+      while true; do
+        if ! selection="$(prompt_input "HOSTNAME" "$(lxc_wizard_text 2 "$max_step" "Set Hostname")" "${CT_HOSTNAME:-semaphore}")"; then
+          ((step--))
+          break
+        fi
+        if validate_hostname "$selection"; then
+          CT_HOSTNAME="$selection"
+          ((step++))
+          break
+        fi
+        show_dialog_message "INVALID HOSTNAME" "Hostname must start with a letter or number and may contain hyphens."
+      done
+      ;;
+    3)
+      if ! selection="$(prompt_radiolist "OPERATING SYSTEM" "$(lxc_wizard_text 3 "$max_step" "Select Operating System")" "${OS_ID}-${OS_VERSION}" \
+        "ubuntu-24.04" "Ubuntu 24.04 LTS" \
+        "debian-12" "Debian 12")"; then
+        ((step--))
+        continue
+      fi
+      OS_ID="${selection%-*}"
+      OS_VERSION="${selection#*-}"
+      ((step++))
+      ;;
+    4)
+      while true; do
+        if ! selection="$(prompt_input "CPU CORES" "$(lxc_wizard_text 4 "$max_step" "Set CPU Cores")" "${CT_CORES:-2}")"; then
+          ((step--))
+          break
+        fi
+        if validate_integer "$selection"; then
+          CT_CORES="$selection"
+          ((step++))
+          break
+        fi
+        show_dialog_message "INVALID CPU VALUE" "CPU cores must be a positive integer."
+      done
+      ;;
+    5)
+      while true; do
+        if ! selection="$(prompt_input "RAM" "$(lxc_wizard_text 5 "$max_step" "Set RAM in MiB")" "${CT_MEMORY:-2048}")"; then
+          ((step--))
+          break
+        fi
+        if validate_integer "$selection"; then
+          CT_MEMORY="$selection"
+          ((step++))
+          break
+        fi
+        show_dialog_message "INVALID RAM VALUE" "RAM must be a positive integer in MiB."
+      done
+      ;;
+    6)
+      while true; do
+        if ! selection="$(prompt_input "DISK SIZE" "$(lxc_wizard_text 6 "$max_step" "Set Disk Size in GiB")" "${CT_DISK:-4}")"; then
+          ((step--))
+          break
+        fi
+        if validate_integer "$selection"; then
+          CT_DISK="$selection"
+          ((step++))
+          break
+        fi
+        show_dialog_message "INVALID DISK VALUE" "Disk size must be a positive integer in GiB."
+      done
+      ;;
+    7)
+      if ! selection="$(pve_pick_bridge "${CT_BRIDGE:-}" "NETWORK BRIDGE" "$(lxc_wizard_text 7 "$max_step" "Select the bridge for this container")")"; then
+        ((step--))
+        continue
+      fi
+      CT_BRIDGE="$selection"
+      ((step++))
+      ;;
+    8)
+      if ! selection="$(prompt_radiolist "IP ADDRESS" "$(lxc_wizard_text 8 "$max_step" "Select IPv4 address mode")" "${CT_NETWORK_MODE:-dhcp}" \
+        "dhcp" "Automatic DHCP address" \
+        "static" "Manual static IPv4 address")"; then
+        ((step--))
+        continue
+      fi
+      CT_NETWORK_MODE="$selection"
+      if [[ "$CT_NETWORK_MODE" == "dhcp" ]]; then
+        CT_IPV4_CIDR=""
+        CT_GATEWAY=""
+        step=11
+      else
+        ((step++))
+      fi
+      ;;
+    9)
+      while true; do
+        if ! selection="$(prompt_input "STATIC IPV4" "$(lxc_wizard_text 9 "$max_step" "Set a static IPv4 CIDR address")" "${CT_IPV4_CIDR:-}")"; then
+          ((step--))
+          break
+        fi
+        if validate_ipv4_cidr "$selection"; then
+          CT_IPV4_CIDR="$selection"
+          ((step++))
+          break
+        fi
+        show_dialog_message "INVALID IP ADDRESS" "Enter a valid IPv4 CIDR address such as 192.168.1.50/24."
+      done
+      ;;
+    10)
+      while true; do
+        if ! selection="$(prompt_input "GATEWAY" "$(lxc_wizard_text 10 "$max_step" "Set the IPv4 gateway")" "${CT_GATEWAY:-}")"; then
+          ((step--))
+          break
+        fi
+        if validate_ipv4 "$selection"; then
+          CT_GATEWAY="$selection"
+          ((step++))
+          break
+        fi
+        show_dialog_message "INVALID GATEWAY" "Enter a valid IPv4 gateway such as 192.168.1.1."
+      done
+      ;;
+    11)
+      selected_flags=""
+      [[ "${CT_UNPRIVILEGED:-1}" == "1" ]] && selected_flags+="unprivileged "
+      [[ "${CT_ONBOOT:-1}" == "1" ]] && selected_flags+="onboot "
+      [[ "${CT_IPV6_METHOD:-auto}" != "disable" ]] && selected_flags+="ipv6 "
+      if ! selection="$(prompt_checklist "CONTAINER OPTIONS" "$(lxc_wizard_text 11 "$max_step" $'Select container options.\nUse Space to toggle and Enter to confirm.')" "$selected_flags" \
+        "unprivileged" "Recommended for most applications" \
+        "onboot" "Start the container at boot" \
+        "ipv6" "Keep IPv6 enabled")"; then
+        if [[ "$CT_NETWORK_MODE" == "dhcp" ]]; then
+          step=8
+        else
+          step=10
+        fi
+        continue
+      fi
+      CT_UNPRIVILEGED="0"
+      CT_ONBOOT="0"
+      CT_IPV6_METHOD="disable"
+      while IFS= read -r selected_flag; do
+        case "$selected_flag" in
+        unprivileged) CT_UNPRIVILEGED="1" ;;
+        onboot) CT_ONBOOT="1" ;;
+        ipv6) CT_IPV6_METHOD="auto" ;;
+        esac
+      done <<<"$selection"
+      ((step++))
+      ;;
+    12)
+      if ! selection="$(prompt_input "TAGS" "$(lxc_wizard_text 12 "$max_step" "Optional tags (comma separated)")" "${CT_TAGS:-}")"; then
+        ((step--))
+        continue
+      fi
+      CT_TAGS="$selection"
+      ((step++))
+      ;;
+    13)
+      if ! selection="$(pve_pick_storage "vztmpl" "TEMPLATE STORAGE" "$(lxc_wizard_text 13 "$max_step" "Select template storage")" "${CT_TEMPLATE_STORAGE:-}")"; then
+        ((step--))
+        continue
+      fi
+      CT_TEMPLATE_STORAGE="$selection"
+      ((step++))
+      ;;
+    14)
+      if ! selection="$(pve_pick_storage "rootdir" "CONTAINER STORAGE" "$(lxc_wizard_text 14 "$max_step" "Select container storage")" "${CT_CONTAINER_STORAGE:-}")"; then
+        ((step--))
+        continue
+      fi
+      CT_CONTAINER_STORAGE="$selection"
+      return 0
+      ;;
+    esac
   done
-  CTID="$selection"
-
-  while true; do
-    selection="$(prompt_input "HOSTNAME" "Set Hostname" "${CT_HOSTNAME:-semaphore}")" || return 1
-    validate_hostname "$selection" && break
-    msg_warn "Hostname must start with a letter or number and may contain hyphens."
-  done
-  CT_HOSTNAME="$selection"
-
-  selection="$(prompt_menu "OPERATING SYSTEM" "Select Operating System" \
-    "ubuntu-24.04" "Ubuntu 24.04 LTS" \
-    "debian-12" "Debian 12")" || return 1
-  OS_ID="${selection%-*}"
-  OS_VERSION="${selection#*-}"
-
-  while true; do
-    selection="$(prompt_input "CPU CORES" "Set CPU Cores" "${CT_CORES:-2}")" || return 1
-    validate_integer "$selection" && break
-    msg_warn "CPU cores must be a positive integer."
-  done
-  CT_CORES="$selection"
-
-  while true; do
-    selection="$(prompt_input "RAM" "Set RAM in MiB" "${CT_MEMORY:-2048}")" || return 1
-    validate_integer "$selection" && break
-    msg_warn "RAM must be a positive integer in MiB."
-  done
-  CT_MEMORY="$selection"
-
-  while true; do
-    selection="$(prompt_input "DISK SIZE" "Set Disk Size in GiB" "${CT_DISK:-8}")" || return 1
-    validate_integer "$selection" && break
-    msg_warn "Disk size must be a positive integer in GiB."
-  done
-  CT_DISK="$selection"
-
-  CT_BRIDGE="$(pve_pick_bridge "${CT_BRIDGE:-}")" || return 1
-
-  selection="$(prompt_two_option_menu "IP ADDRESS" "Select IP Address Mode" \
-    "dhcp" "Automatic DHCP address" \
-    "static" "Manual static IPv4 address")" || return 1
-  CT_NETWORK_MODE="$selection"
-
-  if [[ "$CT_NETWORK_MODE" == "static" ]]; then
-    CT_IPV4_CIDR="$(prompt_input "IP ADDRESS" "Set a Static IPv4 CIDR Address" "${CT_IPV4_CIDR:-}")" || return 1
-    CT_GATEWAY="$(prompt_input "GATEWAY" "Set Gateway IP Address" "${CT_GATEWAY:-}")" || return 1
-  else
-    CT_IPV4_CIDR=""
-    CT_GATEWAY=""
-  fi
-
-  selection="$(prompt_two_option_menu "CONTAINER TYPE" "Select Container Type" \
-    "unprivileged" "Recommended for most applications" \
-    "privileged" "Use only when the application requires it")" || return 1
-  if [[ "$selection" == "unprivileged" ]]; then
-    CT_UNPRIVILEGED="1"
-  else
-    CT_UNPRIVILEGED="0"
-  fi
-
-  if prompt_yes_no "START AT BOOT" "Start Container at boot?" "yes"; then
-    CT_ONBOOT="1"
-  else
-    CT_ONBOOT="0"
-  fi
-
-  selection="$(prompt_two_option_menu "IPV6" "Select IPv6 Mode" \
-    "auto" "Keep IPv6 enabled" \
-    "disable" "Disable IPv6 in the container")" || return 1
-  if [[ "$selection" == "auto" ]]; then
-    CT_IPV6_METHOD="auto"
-  else
-    CT_IPV6_METHOD="disable"
-  fi
-
-  CT_TAGS="$(prompt_input "TAGS" "Optional tags (comma separated)" "${CT_TAGS:-}")" || return 1
-
-  CT_TEMPLATE_STORAGE="$(pve_pick_storage "vztmpl" "TEMPLATE STORAGE" "Select Template Storage" "${CT_TEMPLATE_STORAGE:-}")" || return 1
-  CT_CONTAINER_STORAGE="$(pve_pick_storage "rootdir" "CONTAINER STORAGE" "Select Container Storage" "${CT_CONTAINER_STORAGE:-}")" || return 1
 }
 
 lxc_summary_text() {
+  local ipv4_value="DHCP"
+  local ipv6_value="Disabled"
+  local type_value="Privileged"
+  local onboot_value="No"
+
+  if [[ "${CT_NETWORK_MODE}" != "dhcp" ]]; then
+    ipv4_value="${CT_IPV4_CIDR} via ${CT_GATEWAY}"
+  fi
+  if [[ "${CT_IPV6_METHOD}" == "auto" ]]; then
+    ipv6_value="Auto"
+  fi
+  if [[ "${CT_UNPRIVILEGED}" == "1" ]]; then
+    type_value="Unprivileged"
+  fi
+  if [[ "${CT_ONBOOT}" == "1" ]]; then
+    onboot_value="Yes"
+  fi
+
   cat <<EOF
-App:            ${APP_NAME}
-CTID:           ${CTID}
-Hostname:       ${CT_HOSTNAME}
-OS:             ${OS_ID} ${OS_VERSION}
-CPU:            ${CT_CORES} core(s)
-Memory:         ${CT_MEMORY} MiB
-Disk:           ${CT_DISK} GiB
-Bridge:         ${CT_BRIDGE}
-IPv4:           $( [[ "${CT_NETWORK_MODE}" == "dhcp" ]] && printf '%s' "DHCP" || printf '%s via %s' "${CT_IPV4_CIDR}" "${CT_GATEWAY}" )
-IPv6:           ${CT_IPV6_METHOD}
-Tags:           ${CT_TAGS:-none}
-Unprivileged:   ${CT_UNPRIVILEGED}
-On boot:        ${CT_ONBOOT}
-Template store: ${CT_TEMPLATE_STORAGE}
-Rootfs store:   ${CT_CONTAINER_STORAGE}
+App:              ${APP_NAME}
+CTID:             ${CTID}
+Hostname:         ${CT_HOSTNAME}
+OS:               ${OS_ID} ${OS_VERSION}
+CPU:              ${CT_CORES} core(s)
+Memory:           ${CT_MEMORY} MiB
+Disk:             ${CT_DISK} GiB
+Bridge:           ${CT_BRIDGE}
+IPv4:             ${ipv4_value}
+IPv6:             ${ipv6_value}
+Type:             ${type_value}
+Start at boot:    ${onboot_value}
+Tags:             ${CT_TAGS:-none}
+Template storage: ${CT_TEMPLATE_STORAGE}
+Container store:  ${CT_CONTAINER_STORAGE}
 EOF
 }
 
@@ -146,7 +281,7 @@ lxc_confirm_settings() {
   summary="$(lxc_summary_text)"
 
   if command_exists whiptail; then
-    whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "CONFIRM SETTINGS" --yesno "$summary" 20 78
+    run_whiptail_confirm whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "CONFIRM SETTINGS" --yesno "$summary" 20 78
     return $?
   fi
 
