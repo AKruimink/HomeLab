@@ -1,97 +1,97 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
 SELF_PATH="${BASH_SOURCE[0]:-}"
 SCRIPT_ROOT=""
-
-bootstrap_source() {
-  local relative_path="$1"
-  local base_url="${HOMELAB_PROXMOX_BASE:-https://raw.githubusercontent.com/AKruimink/HomeLab/main/scripts/proxmox}"
-  local local_path=""
-
-  if [[ -n "$SCRIPT_ROOT" ]]; then
-    local_path="${SCRIPT_ROOT}/${relative_path}"
-    if [[ -f "$local_path" ]]; then
-      # shellcheck disable=SC1090
-      source "$local_path"
-      return 0
-    fi
-  fi
-
-  source /dev/stdin <<<"$(curl -fsSL "${base_url}/${relative_path}")"
-}
 
 if [[ -n "$SELF_PATH" && -f "$SELF_PATH" ]]; then
   SCRIPT_ROOT="$(cd "$(dirname "$SELF_PATH")/.." && pwd)"
 fi
 
-bootstrap_source "lib/common.sh"
-bootstrap_source "lib/pve-host.sh"
-bootstrap_source "lib/lxc-build.sh"
+export HOMELAB_PROXMOX_BASE="${HOMELAB_PROXMOX_BASE:-https://raw.githubusercontent.com/AKruimink/HomeLab/main/scripts/proxmox}"
+export HOMELAB_PROXMOX_SCRIPT_ROOT="${HOMELAB_PROXMOX_SCRIPT_ROOT:-$SCRIPT_ROOT}"
 
-APP_NAME="Semaphore"
-APP_SLUG="semaphore"
+if [[ "${1:-}" == "update" ]]; then
+  echo "Host-side 'update' is not supported in the upstream-compatible Semaphore flow." >&2
+  echo "Use the in-container update path provided by the installed script instead." >&2
+  exit 1
+fi
 
-create_flow() {
-  local mode
-  local ip_address
-  local remote_entrypoint
+if [[ -n "$HOMELAB_PROXMOX_SCRIPT_ROOT" && -f "${HOMELAB_PROXMOX_SCRIPT_ROOT}/misc/build.func" ]]; then
+  # shellcheck disable=SC1090
+  source "${HOMELAB_PROXMOX_SCRIPT_ROOT}/misc/build.func"
+else
+  source /dev/stdin <<<"$(curl -fsSL "${HOMELAB_PROXMOX_BASE}/misc/build.func")"
+fi
+# Copyright (c) 2021-2026 community-scripts ORG
+# Author: kristocopani
+# License: MIT | https://github.com/community-scripts/ProxmoxVE/raw/main/LICENSE
+# Source: https://semaphoreui.com/ | Github: https://github.com/semaphoreui/semaphore
 
-  lxc_apply_default_settings "semaphore" "2" "2048" "8" "ubuntu" "24.04"
+APP="Semaphore"
+var_tags="${var_tags:-dev_ops}"
+var_cpu="${var_cpu:-2}"
+var_ram="${var_ram:-2048}"
+var_disk="${var_disk:-4}"
+var_os="${var_os:-ubuntu}"
+var_version="${var_version:-24.04}"
+var_arm64="${var_arm64:-yes}"
+var_unprivileged="${var_unprivileged:-1}"
 
-  mode="$(prompt_default_or_advanced)" || exit 0
+header_info "$APP"
+variables
+color
+catch_errors
 
-  if [[ "$mode" == "advanced" ]]; then
-    lxc_prompt_advanced_settings || exit 0
+function update_script() {
+  header_info
+  check_container_storage
+  check_container_resources
+
+  if [[ ! -f /etc/systemd/system/semaphore.service ]]; then
+    msg_error "No ${APP} Installation Found!"
+    exit
   fi
 
-  lxc_confirm_settings || exit 0
-  lxc_create_container "$APP_SLUG"
-  lxc_sync_payload "$CTID" "$APP_SLUG" "$SCRIPT_ROOT"
-  lxc_run_app_action "$CTID" "$APP_SLUG" "install"
+  if check_for_gh_release "semaphore" "semaphoreui/semaphore"; then
+    if [[ -f /opt/semaphore/semaphore_db.bolt ]]; then
+      msg_warn "WARNING: Due to bugs with BoltDB database, update script will move your application"
+      msg_warn "to use SQLite database instead. Make sure you have a backup of your data!"
+      echo ""
+      read -r -p "${TAB3}Do you want to continue? (y/N): " CONFIRM
+      if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+        exit 0
+      else
+        msg_info "Moving from BoltDB to SQLite"
+        sed -i \
+          -e 's|"bolt": {|"sqlite": {|' \
+          -e 's|/semaphore_db.bolt"|/database.sqlite"|' \
+          -e '/semaphore_db.bolt/d' \
+          -e '/"dialect"/d' \
+          -e '/^  },$/a\  "dialect": "sqlite",' \
+          /opt/semaphore/config.json
+        msg_ok "Moved from BoltDB to SQLite"
+      fi
+    fi
 
-  ip_address="$(pct_primary_ip "$CTID")"
-  remote_entrypoint="$(proxmox_remote_entrypoint "ct/semaphore.sh")"
-  msg_ok "Completed successfully"
-  echo -e "${INFO}${YW}Access ${APP_NAME} at:${CL}"
-  echo -e "${TAB3}${BGN}http://${ip_address}:3000${CL}"
-  echo -e "${INFO}${YW}Update from the Proxmox host:${CL}"
-  echo -e "${TAB3}${BL}bash -c \"\$(curl -fsSL ${remote_entrypoint})\" update${CL}"
-  echo -e "${INFO}${YW}Update inside the container:${CL}"
-  echo -e "${TAB3}${BL}semaphore-update${CL}"
-}
+    msg_info "Stopping Service"
+    systemctl stop semaphore
+    msg_ok "Stopped Service"
 
-update_flow() {
-  local ip_address
+    fetch_and_deploy_gh_release "semaphore" "semaphoreui/semaphore" "binary" "latest" "/opt/semaphore" "semaphore_*_linux_$(arch_resolve).deb"
 
-  lxc_update_existing_app "$APP_SLUG" "$SCRIPT_ROOT"
-  ip_address="$(pct_primary_ip "$CTID")"
-  msg_ok "Update completed successfully"
-  if [[ -n "$ip_address" ]]; then
-    echo -e "${INFO}${YW}${APP_NAME} is reachable at:${CL}"
-    echo -e "${TAB3}${BGN}http://${ip_address}:3000${CL}"
+    if [[ -f /opt/semaphore/semaphore_db.bolt ]]; then
+      $STD semaphore migrate --from-boltdb /opt/semaphore/semaphore_db.bolt --config /opt/semaphore/config.json
+      rm -f /opt/semaphore/semaphore_db.bolt
+    fi
+
+    msg_info "Starting Service"
+    systemctl start semaphore
+    msg_ok "Started Service"
+    msg_ok "Updated successfully!"
   fi
+  exit
 }
 
-main() {
-  local action="${1:-create}"
-
-  require_root
-  require_proxmox_host
-  ensure_whiptail
-  header_info "$APP_NAME"
-
-  case "$action" in
-  create)
-    create_flow
-    ;;
-  update)
-    update_flow
-    ;;
-  *)
-    die "Unsupported action '${action}'. Use 'create' or 'update'."
-    ;;
-  esac
-}
-
-main "$@"
+start
+build_container
+description

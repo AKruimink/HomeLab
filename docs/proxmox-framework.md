@@ -30,14 +30,13 @@ This repository now contains a local Proxmox scripting framework designed to pre
 
 ```mermaid
 flowchart TD
-    A[Host entrypoint in ct/] --> B[Load common and Proxmox helper libraries]
-    B --> C[Show whiptail mode selector]
-    C --> D[Resolve default or advanced settings]
-    D --> E[Create LXC on Proxmox host]
-    E --> F[Push helper bundle and app installer into container]
-    F --> G[Execute install/app action inside container]
-    G --> H[Configure service, MOTD, update wrapper]
-    H --> I[Return service URL and update instructions]
+    A[Host entrypoint in ct/] --> B[Load locally vendored Community Scripts build.func]
+    B --> C[Run upstream-style default or advanced install flow]
+    C --> D[Create LXC on Proxmox host]
+    D --> E[Inject locally vendored install.func into container]
+    E --> F[Run app installer inside container]
+    F --> G[Configure service and finalize install]
+    G --> H[Return upstream-style completion output]
 ```
 
 ## Remote sourcing model
@@ -57,13 +56,6 @@ For branch-safe remote testing, use [run.sh](C:/Users/AlwinKruimink/source/repos
 ```bash
 BASE=https://raw.githubusercontent.com/AKruimink/HomeLab/<your-branch>/scripts/proxmox
 curl -fsSL "$BASE/misc/run.sh" | bash -s -- "$BASE" ct/semaphore.sh
-```
-
-For updates from a branch:
-
-```bash
-BASE=https://raw.githubusercontent.com/AKruimink/HomeLab/<your-branch>/scripts/proxmox
-curl -fsSL "$BASE/misc/run.sh" | bash -s -- "$BASE" ct/semaphore.sh update
 ```
 
 That is the recommended branch-testing path. A plain direct `curl` of [semaphore.sh](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox/ct/semaphore.sh) is still fine for `main`, but for branches you want the explicit base so every dependent file comes from the same ref.
@@ -105,6 +97,17 @@ That is the recommended branch-testing path. A plain direct `curl` of [semaphore
 - Ubuntu cloud image bootstrap
 - cloud-init VM creation helpers
 
+### Locally vendored upstream helper layer
+
+The Semaphore CT parity path now uses local copies of the upstream Community Scripts helper files under [misc/](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox/misc):
+
+- [build.func](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox/misc/build.func)
+- [core.func](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox/misc/core.func)
+- [error_handler.func](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox/misc/error_handler.func)
+- [install.func](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox/misc/install.func)
+- [tools.func](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox/misc/tools.func)
+- [api.func](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox/misc/api.func)
+
 ## Semaphore implementation
 
 The first complete app implementation is:
@@ -114,30 +117,23 @@ The first complete app implementation is:
 
 It currently provides:
 
-- default and advanced LXC create flows
-- latest upstream Semaphore `.deb` deployment
-- SQLite configuration
-- generated admin credentials written to `/root/semaphore.creds`
-- `systemd` service creation
-- a `semaphore-update` command inside the container
-- host-side update flow through the same entrypoint
+- upstream-style default and advanced LXC create flows
+- upstream Semaphore installer behavior using SQLite
+- locally vendored shared helper flow instead of runtime dependency on the upstream repository
+- branch-safe remote execution through [run.sh](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox/misc/run.sh)
 
-## LXC create/update flow
+## LXC create/install flow
 
 ```mermaid
 flowchart TD
-    A[Run semaphore.sh on Proxmox host] --> B{Create or update}
-    B -->|Create| C[Resolve CT settings]
+    A[Run semaphore.sh on Proxmox host] --> B[Source local build.func]
+    B --> C[Run upstream-style install flow]
     C --> D[Create and start container]
-    D --> E[Push helper bundle and installer]
-    E --> F[Run APP_ACTION=install]
+    D --> E[Inject local install.func]
+    E --> F[Run semaphore-install.sh]
     F --> G[Install dependencies and Semaphore]
     G --> H[Write SQLite config and service]
-    H --> I[Create semaphore-update wrapper]
-    B -->|Update| J[Prompt for existing CTID]
-    J --> K[Push latest helper bundle and installer]
-    K --> L[Run APP_ACTION=update]
-    L --> M[Reinstall latest release and restart service]
+    H --> I[Finalize install and show URL]
 ```
 
 ## VM example

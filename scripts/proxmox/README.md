@@ -5,7 +5,7 @@ This folder contains a local, self-controlled Proxmox scripting framework inspir
 ## Goals
 
 - keep the familiar `whiptail`-driven UX
-- keep host-side create/update entrypoints
+- keep Community-Scripts-style create/update behavior
 - keep shared host/container helper libraries
 - remove runtime dependency on upstream Community Scripts
 - provide a clean base for adding more LXC and VM installers over time
@@ -33,18 +33,7 @@ BASE=https://raw.githubusercontent.com/AKruimink/HomeLab/<your-branch>/scripts/p
 curl -fsSL "$BASE/misc/run.sh" | bash -s -- "$BASE" ct/semaphore.sh
 ```
 
-Update an existing Semaphore container from the Proxmox host:
-
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/AKruimink/HomeLab/main/scripts/proxmox/ct/semaphore.sh)" update
-```
-
-Update an existing Semaphore container from a feature branch:
-
-```bash
-BASE=https://raw.githubusercontent.com/AKruimink/HomeLab/<your-branch>/scripts/proxmox
-curl -fsSL "$BASE/misc/run.sh" | bash -s -- "$BASE" ct/semaphore.sh update
-```
+The local Semaphore CT path now vendors the upstream Community Scripts host/install flow and shared helper files locally, so its create behavior tracks upstream much more closely.
 
 ### Ubuntu 24.04 cloud-init VM
 
@@ -71,8 +60,9 @@ curl -fsSL "$BASE/misc/run.sh" | bash -s -- "$BASE" vm/ubuntu-2404-cloudinit.sh
 
 - `ct/` host-side LXC entrypoints
 - `install/` scripts executed inside containers
-- `lib/` shared host-side and container-side helpers
+- `lib/` custom helpers still used by the VM-oriented local scripts
 - `misc/run.sh` branch-aware remote runner
+- `misc/*.func` locally vendored Community Scripts shared function files used by the Semaphore parity path
 - `vm/` host-side VM entrypoints
 
 See [proxmox-framework.md](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/docs/proxmox-framework.md) for the detailed architecture and flow diagrams.
