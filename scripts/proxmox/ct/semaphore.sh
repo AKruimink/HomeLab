@@ -72,7 +72,6 @@ prompt_semaphore_admin_settings() {
 }
 
 create_flow() {
-  local admin_credentials
   local mode
   local ip_address
 
@@ -102,7 +101,6 @@ create_flow() {
   lxc_run_app_action "$CTID" "$APP_SLUG" "install"
 
   ip_address="$(pct_primary_ip "$CTID")"
-  admin_credentials="$(pct exec "$CTID" -- cat /root/semaphore.creds 2>/dev/null || true)"
   msg_ok "Completed successfully"
   cat <<EOF
 
@@ -112,7 +110,7 @@ ${BL}━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ${INFO}${YW}Semaphore URL:${CL}
 ${TAB3}${BGN}http://${ip_address}:3000${CL}
-$(if [[ -n "$admin_credentials" ]]; then printf '\n%s%s%s\n%s\n' "$INFO" "$YW" "Initial admin credentials:${CL}" "$admin_credentials"; fi)${INFO}${YW}Update inside the container:${CL}
+${INFO}${YW}Update inside the container:${CL}
 ${TAB3}${BL}semaphore-update${CL}
 
 EOF
