@@ -187,20 +187,13 @@ prompt_menu() {
 }
 
 prompt_default_or_advanced() {
-  if command_exists whiptail; then
-    if whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "SETTINGS" --yesno "Use default settings?" --no-button "Advanced" 10 58; then
-      printf '%s' "default"
-    else
-      printf '%s' "advanced"
-    fi
-    return 0
-  fi
+  local selection
 
-  if prompt_yes_no "SETTINGS" "Use default settings?" "yes"; then
-    printf '%s' "default"
-  else
-    printf '%s' "advanced"
-  fi
+  selection="$(prompt_menu "SETTINGS" "Choose setup mode" \
+    "default" "Use default settings" \
+    "advanced" "Change settings")" || return 1
+
+  printf '%s' "$selection"
 }
 
 prompt_two_option_menu() {
@@ -251,4 +244,3 @@ proxmox_remote_entrypoint() {
 }
 
 load_common
-
