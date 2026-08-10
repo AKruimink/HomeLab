@@ -164,17 +164,21 @@ run_with_progress() {
   local log_file
   local pid
   local exit_code
-  local dots=0
   local had_errexit=0
+  local dot_count=0
 
   log_file="$(mktemp)"
-  printf '%b%s%b' "${INFO}${YW}" "$message" "${CL}" >&2
+  printf '%b%s%b ' "${INFO}${YW}" "$message" "${CL}" >&2
   "$@" >"$log_file" 2>&1 &
   pid=$!
 
   while kill -0 "$pid" >/dev/null 2>&1; do
-    dots=$(((dots + 1) % 4))
-    printf '\r%b%s%b' "${INFO}${YW}" "${message}$(printf '%.0s.' $(seq 1 "$dots"))" "${CL}" >&2
+    printf '.' >&2
+    dot_count=$((dot_count + 1))
+    if ((dot_count % 20 == 0)); then
+      printf '\n' >&2
+      printf '%b%s%b ' "${INFO}${YW}" "$message" "${CL}" >&2
+    fi
     sleep 0.5
   done
 
@@ -183,8 +187,7 @@ run_with_progress() {
   wait "$pid"
   exit_code=$?
   [[ "$had_errexit" -eq 1 ]] && set -e
-
-  printf '\r\033[K' >&2
+  printf '\n' >&2
 
   if [[ "$exit_code" -ne 0 ]]; then
     [[ -s "$log_file" ]] && cat "$log_file" >&2

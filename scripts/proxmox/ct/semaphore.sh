@@ -104,16 +104,18 @@ create_flow() {
   ip_address="$(pct_primary_ip "$CTID")"
   admin_credentials="$(pct exec "$CTID" -- cat /root/semaphore.creds 2>/dev/null || true)"
   msg_ok "Completed successfully"
-  echo ""
-  echo -e "${INFO}${YW}Access ${APP_NAME} at:${CL}"
-  echo -e "${TAB3}${BGN}http://${ip_address}:3000${CL}"
-  if [[ -n "$admin_credentials" ]]; then
-    echo -e "${INFO}${YW}Initial admin credentials:${CL}"
-    echo "$admin_credentials"
-  fi
-  echo -e "${INFO}${YW}Update inside the container:${CL}"
-  echo -e "${TAB3}${BL}semaphore-update${CL}"
-  echo ""
+  cat <<EOF
+
+${BL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CL}
+${BOLD}${GN}  ${APP_NAME} deployment details${CL}
+${BL}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${CL}
+
+${INFO}${YW}Semaphore URL:${CL}
+${TAB3}${BGN}http://${ip_address}:3000${CL}
+$(if [[ -n "$admin_credentials" ]]; then printf '\n%s%s%s\n%s\n' "$INFO" "$YW" "Initial admin credentials:${CL}" "$admin_credentials"; fi)${INFO}${YW}Update inside the container:${CL}
+${TAB3}${BL}semaphore-update${CL}
+
+EOF
 }
 
 main() {
