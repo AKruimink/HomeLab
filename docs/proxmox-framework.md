@@ -1,6 +1,6 @@
 # Proxmox Script Framework
 
-This repository now contains a local Proxmox scripting framework designed to preserve the Community Scripts workflow style while keeping the code fully under your control.
+This repository now contains a local Proxmox scripting framework designed to preserve a familiar Proxmox automation workflow while keeping the code fully under your control.
 
 ## Scope
 
@@ -30,13 +30,13 @@ This repository now contains a local Proxmox scripting framework designed to pre
 
 ```mermaid
 flowchart TD
-    A[Host entrypoint in ct/] --> B[Load locally vendored Community Scripts build.func]
-    B --> C[Run upstream-style default or advanced install flow]
+    A[Host entrypoint in ct/] --> B[Load local helper libraries]
+    B --> C[Run default or advanced install flow]
     C --> D[Create LXC on Proxmox host]
-    D --> E[Inject locally vendored install.func into container]
+    D --> E[Inject local container helper bundle into container]
     E --> F[Run app installer inside container]
     F --> G[Configure service and finalize install]
-    G --> H[Return upstream-style completion output]
+    G --> H[Return completion output]
 ```
 
 ## Remote sourcing model
@@ -97,17 +97,6 @@ That is the recommended branch-testing path. A plain direct `curl` of [semaphore
 - Ubuntu cloud image bootstrap
 - cloud-init VM creation helpers
 
-### Locally vendored upstream helper layer
-
-The Semaphore CT parity path now uses local copies of the upstream Community Scripts helper files under [misc/](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox/misc):
-
-- [build.func](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox/misc/build.func)
-- [core.func](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox/misc/core.func)
-- [error_handler.func](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox/misc/error_handler.func)
-- [install.func](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox/misc/install.func)
-- [tools.func](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox/misc/tools.func)
-- [api.func](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox/misc/api.func)
-
 ## Semaphore implementation
 
 The first complete app implementation is:
@@ -117,19 +106,19 @@ The first complete app implementation is:
 
 It currently provides:
 
-- upstream-style default and advanced LXC create flows
-- upstream Semaphore installer behavior using SQLite
-- locally vendored shared helper flow instead of runtime dependency on the upstream repository
+- default and advanced LXC create flows
+- Semaphore installer behavior using SQLite
+- original HomeLab shared helper flow
 - branch-safe remote execution through [run.sh](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox/misc/run.sh)
 
 ## LXC create/install flow
 
 ```mermaid
 flowchart TD
-    A[Run semaphore.sh on Proxmox host] --> B[Source local build.func]
-    B --> C[Run upstream-style install flow]
+    A[Run semaphore.sh on Proxmox host] --> B[Source local helper libraries]
+    B --> C[Run default or advanced flow]
     C --> D[Create and start container]
-    D --> E[Inject local install.func]
+    D --> E[Inject local container helper bundle]
     E --> F[Run semaphore-install.sh]
     F --> G[Install dependencies and Semaphore]
     G --> H[Write SQLite config and service]

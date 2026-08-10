@@ -27,6 +27,7 @@ lxc_apply_default_settings() {
   CT_UNPRIVILEGED="${CT_UNPRIVILEGED:-1}"
   CT_ONBOOT="${CT_ONBOOT:-1}"
   CT_IPV6_METHOD="${CT_IPV6_METHOD:-auto}"
+  CT_TAGS="${CT_TAGS:-${var_tags:-}}"
   CT_TEMPLATE_STORAGE="${CT_TEMPLATE_STORAGE:-$(pve_first_storage "vztmpl")}"
   CT_CONTAINER_STORAGE="${CT_CONTAINER_STORAGE:-$(pve_first_storage "rootdir")}"
 }
@@ -114,6 +115,8 @@ lxc_prompt_advanced_settings() {
     CT_IPV6_METHOD="disable"
   fi
 
+  CT_TAGS="$(prompt_input "TAGS" "Optional tags (comma separated)" "${CT_TAGS:-}")" || return 1
+
   CT_TEMPLATE_STORAGE="$(pve_pick_storage "vztmpl" "TEMPLATE STORAGE" "Select Template Storage" "${CT_TEMPLATE_STORAGE:-}")" || return 1
   CT_CONTAINER_STORAGE="$(pve_pick_storage "rootdir" "CONTAINER STORAGE" "Select Container Storage" "${CT_CONTAINER_STORAGE:-}")" || return 1
 }
@@ -130,6 +133,7 @@ Disk:           ${CT_DISK} GiB
 Bridge:         ${CT_BRIDGE}
 IPv4:           $( [[ "${CT_NETWORK_MODE}" == "dhcp" ]] && printf '%s' "DHCP" || printf '%s via %s' "${CT_IPV4_CIDR}" "${CT_GATEWAY}" )
 IPv6:           ${CT_IPV6_METHOD}
+Tags:           ${CT_TAGS:-none}
 Unprivileged:   ${CT_UNPRIVILEGED}
 On boot:        ${CT_ONBOOT}
 Template store: ${CT_TEMPLATE_STORAGE}
@@ -154,10 +158,15 @@ lxc_create_container() {
   local app_slug="$1"
   local template_ref
   local net0
+  local tags_option=()
 
   ensure_guest_id_available "$CTID"
   template_ref="$(pve_ensure_lxc_template "$CT_TEMPLATE_STORAGE" "$OS_ID" "$OS_VERSION")"
   net0="$(build_lxc_net0 "$CT_BRIDGE" "$CT_NETWORK_MODE" "$CT_IPV4_CIDR" "$CT_GATEWAY")"
+
+  if [[ -n "${CT_TAGS:-}" ]]; then
+    tags_option=(--tags "$CT_TAGS")
+  fi
 
   msg_info "Creating CT ${CTID}"
   pct create "$CTID" "$template_ref" \
@@ -170,7 +179,7 @@ lxc_create_container() {
     --unprivileged "$CT_UNPRIVILEGED" \
     --onboot "$CT_ONBOOT" \
     --features nesting=1 \
-    --tags "homelab;${app_slug}" >/dev/null
+    "${tags_option[@]}" >/dev/null
   msg_ok "Created CT ${CTID}"
 
   msg_info "Starting CT ${CTID}"
@@ -210,21 +219,4 @@ lxc_run_app_action() {
     APP_SLUG="$app_slug" \
     IPV6_METHOD="${CT_IPV6_METHOD:-auto}" \
     bash -lc "export FUNCTIONS_FILE_PATH=\"\$(cat /opt/homelab-proxmox/lib/container-functions.sh)\"; bash /opt/homelab-proxmox/install/${app_slug}-install.sh"
-}
-
-lxc_update_existing_app() {
-  local app_slug="$1"
-  local script_root="$2"
-  local target_ctid
-
-  while true; do
-    target_ctid="$(prompt_input "Semaphore CTID" "Enter the CTID of the existing ${APP_NAME} container." "${CTID:-}")" || return 1
-    validate_integer "$target_ctid" && break
-    msg_warn "CTID must be a numeric value."
-  done
-
-  pct status "$target_ctid" >/dev/null 2>&1 || die "CT ${target_ctid} does not exist."
-  CTID="$target_ctid"
-  lxc_sync_payload "$CTID" "$app_slug" "$script_root"
-  lxc_run_app_action "$CTID" "$app_slug" "update"
 }

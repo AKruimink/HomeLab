@@ -6,7 +6,7 @@ The project assumes the lab is not exposed directly to the public internet. Beca
 
 ## Proxmox script framework
 
-The repository now includes a local Proxmox scripting framework under [scripts/proxmox/](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox) for Community-Scripts-style LXC and VM workflows.
+The repository now includes a local Proxmox scripting framework under [scripts/proxmox/](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/scripts/proxmox) for HomeLab LXC and VM workflows.
 
 The first complete app implementation is the Semaphore LXC flow:
 

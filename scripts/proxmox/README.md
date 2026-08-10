@@ -1,13 +1,13 @@
 # HomeLab Proxmox Scripts
 
-This folder contains a local, self-controlled Proxmox scripting framework inspired by Community Scripts.
+This folder contains a local, self-controlled Proxmox scripting framework for repeatable HomeLab LXC and VM workflows.
 
 ## Goals
 
 - keep the familiar `whiptail`-driven UX
-- keep Community-Scripts-style create/update behavior
+- keep a consistent Proxmox-style create/install workflow
 - keep shared host/container helper libraries
-- remove runtime dependency on upstream Community Scripts
+- keep the implementation fully local to this repository
 - provide a clean base for adding more LXC and VM installers over time
 
 ## Current entrypoints
@@ -33,7 +33,7 @@ BASE=https://raw.githubusercontent.com/AKruimink/HomeLab/<your-branch>/scripts/p
 curl -fsSL "$BASE/misc/run.sh" | bash -s -- "$BASE" ct/semaphore.sh
 ```
 
-The local Semaphore CT path now vendors the upstream Community Scripts host/install flow and shared helper files locally, so its create behavior tracks upstream much more closely.
+The local Semaphore CT path is implemented with original HomeLab code and follows the same broad deployment model as the Proxmox ecosystem scripts: host-side create flow, shared helpers, and a smaller in-container installer.
 
 ### Ubuntu 24.04 cloud-init VM
 
@@ -62,7 +62,6 @@ curl -fsSL "$BASE/misc/run.sh" | bash -s -- "$BASE" vm/ubuntu-2404-cloudinit.sh
 - `install/` scripts executed inside containers
 - `lib/` custom helpers still used by the VM-oriented local scripts
 - `misc/run.sh` branch-aware remote runner
-- `misc/*.func` locally vendored Community Scripts shared function files used by the Semaphore parity path
 - `vm/` host-side VM entrypoints
 
 See [proxmox-framework.md](C:/Users/AlwinKruimink/source/repos/~Personal/HomeLab.worktrees/custom-proxmox-scripts-development/docs/proxmox-framework.md) for the detailed architecture and flow diagrams.

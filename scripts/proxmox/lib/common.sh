@@ -6,7 +6,7 @@ fi
 HOMELAB_PROXMOX_COMMON_LOADED=1
 
 HOMELAB_PROXMOX_DEFAULT_BASE="${HOMELAB_PROXMOX_DEFAULT_BASE:-https://raw.githubusercontent.com/AKruimink/HomeLab/main/scripts/proxmox}"
-HOMELAB_WHIPTAIL_BACKTITLE="${HOMELAB_WHIPTAIL_BACKTITLE:-Proxmox VE Helper Scripts}"
+HOMELAB_WHIPTAIL_BACKTITLE="${HOMELAB_WHIPTAIL_BACKTITLE:-HomeLab Proxmox Scripts}"
 
 color() {
   YW=$'\033[33m'
@@ -251,3 +251,4 @@ proxmox_remote_entrypoint() {
 }
 
 load_common
+
