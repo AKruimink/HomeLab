@@ -16,4 +16,12 @@ export HOMELAB_PROXMOX_BASE="$BASE"
 
 echo "HomeLab Proxmox origin: ${HOMELAB_PROXMOX_BASE}" >&2
 echo "Running: ${SCRIPT}" >&2
-curl -fsSL "${HOMELAB_PROXMOX_BASE}/${SCRIPT}" | bash -s -- "$@"
+script_file="$(mktemp)"
+trap 'rm -f "$script_file"' EXIT
+curl -fsSL "${HOMELAB_PROXMOX_BASE}/${SCRIPT}" -o "$script_file"
+
+if [[ -r /dev/tty ]]; then
+  bash "$script_file" "$@" </dev/tty
+else
+  bash "$script_file" "$@"
+fi

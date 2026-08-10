@@ -70,6 +70,10 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+has_interactive_tty() {
+  [[ -r /dev/tty && -w /dev/tty ]]
+}
+
 require_root() {
   [[ "$(id -u)" -eq 0 ]] || die "Please run this script as root."
 }
@@ -120,6 +124,12 @@ prompt_yes_no() {
     if [[ "$default" == "no" ]]; then
       yes_args=(--defaultno)
     fi
+    if has_interactive_tty; then
+      if whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" "${yes_args[@]}" --yesno "$question" 12 72 </dev/tty >/dev/tty 2>/dev/tty; then
+        return 0
+      fi
+      return 1
+    fi
     if whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" "${yes_args[@]}" --yesno "$question" 12 72; then
       return 0
     fi
@@ -140,7 +150,11 @@ prompt_input() {
   local result
 
   if command_exists whiptail; then
-    result=$(whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --inputbox "$prompt" 12 72 "$default_value" 3>&1 1>&2 2>&3) || return 1
+    if has_interactive_tty; then
+      result=$(whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --inputbox "$prompt" 12 72 "$default_value" 3>&1 1>/dev/tty 2>&3 </dev/tty) || return 1
+    else
+      result=$(whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --inputbox "$prompt" 12 72 "$default_value" 3>&1 1>&2 2>&3) || return 1
+    fi
     printf '%s' "$result"
     return 0
   fi
@@ -155,7 +169,11 @@ prompt_password() {
   local result
 
   if command_exists whiptail; then
-    result=$(whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --passwordbox "$prompt" 12 72 3>&1 1>&2 2>&3) || return 1
+    if has_interactive_tty; then
+      result=$(whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --passwordbox "$prompt" 12 72 3>&1 1>/dev/tty 2>&3 </dev/tty) || return 1
+    else
+      result=$(whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --passwordbox "$prompt" 12 72 3>&1 1>&2 2>&3) || return 1
+    fi
     printf '%s' "$result"
     return 0
   fi
@@ -169,10 +187,16 @@ prompt_menu() {
   local title="$1"
   local prompt="$2"
   shift 2
+  local result
 
   if command_exists whiptail; then
-    whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --menu "$prompt" 20 78 10 "$@" 3>&1 1>&2 2>&3
-    return $?
+    if has_interactive_tty; then
+      result=$(whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --menu "$prompt" 20 78 10 "$@" 3>&1 1>/dev/tty 2>&3 </dev/tty) || return 1
+    else
+      result=$(whiptail --backtitle "$HOMELAB_WHIPTAIL_BACKTITLE" --title "$title" --menu "$prompt" 20 78 10 "$@" 3>&1 1>&2 2>&3) || return 1
+    fi
+    printf '%s' "$result"
+    return 0
   fi
 
   local i=1
